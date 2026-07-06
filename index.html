@@ -870,6 +870,7 @@ const bench = {
   elapsed: 0,
   frames: [],          // { t, dt(ms), fps, draws, tris }
   startedAtISO: '',
+  wakeLock: null,      // Screen Wake Lock sentinel, held during a run
 };
 const benchBtn   = document.getElementById('btn-bench');
 const benchBanner= document.getElementById('bench-banner');
@@ -891,6 +892,24 @@ function resetSimulation(){
   for (let i=0;i<history.length;i++) history[i]=60;
 }
 
+// Keep the screen awake for the duration of a run so a dimming/lock timeout
+// can't skew frame timings (or interrupt the pass). The Screen Wake Lock API is
+// only granted to visible pages, so we also re-acquire it if the tab is hidden
+// and later shown again mid-benchmark. Absent support degrades silently.
+async function acquireWakeLock(){
+  if (!('wakeLock' in navigator)) return;
+  try {
+    bench.wakeLock = await navigator.wakeLock.request('screen');
+    bench.wakeLock.addEventListener('release', () => { bench.wakeLock = null; });
+  } catch(e){ bench.wakeLock = null; }
+}
+function releaseWakeLock(){
+  if (bench.wakeLock){ try { bench.wakeLock.release(); } catch(e){} bench.wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (bench.running && !bench.wakeLock && document.visibilityState === 'visible') acquireWakeLock();
+});
+
 function startBenchmark(){
   resetSimulation();
   bench.running = true;
@@ -905,14 +924,19 @@ function startBenchmark(){
   benchBtn.classList.add('running');
   benchBtn.querySelector('.lbl').textContent = 'Stop';
   benchBanner.classList.add('show');
+  acquireWakeLock();
 }
 
 function stopBenchmark(aborted){
   bench.running = false;
+  releaseWakeLock();
   benchBtn.classList.remove('running');
   benchBtn.querySelector('.lbl').textContent = 'Benchmark';
   benchBanner.classList.remove('show');
-  if (!aborted && bench.frames.length > 5) downloadReport();
+  if (!aborted && bench.frames.length > 5){
+    downloadReport();
+    downloadCard();
+  }
 }
 
 function toggleBenchmark(){ bench.running ? stopBenchmark(true) : startBenchmark(); }
@@ -942,7 +966,8 @@ function mean(a){ return a.reduce((s,v)=>s+v,0)/a.length; }
 function stdev(a, m){ return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/a.length); }
 function pad(s, n){ s=String(s); return s + ' '.repeat(Math.max(0, n-s.length)); }
 
-function buildReport(){
+// Shared metric computation so the text report and the image card always agree.
+function computeStats(){
   const f = bench.frames;
   const fpsArr = f.map(x=>x.fps);
   const ftArr  = f.map(x=>x.dt);
@@ -950,16 +975,21 @@ function buildReport(){
   const ftSorted  = [...ftArr].sort((a,b)=>a-b);
   const avgFps = mean(fpsArr);
   const avgFt  = mean(ftArr);
-
   // "1% low" / "0.1% low" the way frametime tools report: mean of the worst frames
   const worst = [...ftArr].sort((a,b)=>b-a); // slowest first
   const lowN = (p)=>{ const n=Math.max(1, Math.floor(f.length*p)); const slice=worst.slice(0,n); return 1000/mean(slice); };
-  const low1  = lowN(0.01);
-  const low01 = lowN(0.001);
+  return {
+    f, fpsArr, ftArr, fpsSorted, ftSorted, avgFps, avgFt,
+    minFps: Math.min(...fpsArr), maxFps: Math.max(...fpsArr),
+    stdevFps: stdev(fpsArr, avgFps),
+    low1: lowN(0.01), low01: lowN(0.001),
+    gpu: gpuName,
+  };
+}
 
-  // The active backend + GPU were resolved once at startup; reuse those so the
-  // report is correct whether we're running on WebGL or WebGPU.
-  const gpu = gpuName;
+function buildReport(){
+  const s = computeStats();
+  const { f, fpsArr, ftArr, fpsSorted, ftSorted, avgFps, avgFt, low1, low01, gpu } = s;
 
   const L = [];
   L.push('================================================================');
@@ -985,9 +1015,9 @@ function buildReport(){
   L.push('');
   L.push('---- FRAMERATE (fps) -------------------------------------------');
   L.push('Average          : ' + avgFps.toFixed(2));
-  L.push('Minimum          : ' + Math.min(...fpsArr).toFixed(2));
-  L.push('Maximum          : ' + Math.max(...fpsArr).toFixed(2));
-  L.push('Std deviation    : ' + stdev(fpsArr, avgFps).toFixed(2));
+  L.push('Minimum          : ' + s.minFps.toFixed(2));
+  L.push('Maximum          : ' + s.maxFps.toFixed(2));
+  L.push('Std deviation    : ' + s.stdevFps.toFixed(2));
   L.push('1% low           : ' + low1.toFixed(2));
   L.push('0.1% low         : ' + low01.toFixed(2));
   L.push('');
@@ -1019,6 +1049,225 @@ function downloadReport(){
   a.href = url; a.download = 'chassis-benchmark_' + stamp + '.txt';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+// =================== BENCHMARK CARD (image) ===================
+// Renders a small collectible-style "stat card" (trading-card proportions) with
+// the run's headline numbers, system info, and a frametime graph, then downloads
+// it as a PNG alongside the text report.
+
+// Give each run a flavor tier + accent based on average fps — purely cosmetic.
+function rankFor(avgFps){
+  if (avgFps >= 110) return { tier: 'S',  name: 'MYTHIC',    accent: '#ff8adf' };
+  if (avgFps >= 85)  return { tier: 'A',  name: 'LEGENDARY', accent: '#ffb14d' };
+  if (avgFps >= 60)  return { tier: 'B',  name: 'RARE',      accent: '#5cffb1' };
+  if (avgFps >= 40)  return { tier: 'C',  name: 'UNCOMMON',  accent: '#4dd0ff' };
+  return               { tier: 'D',  name: 'COMMON',    accent: '#7a90a8' };
+}
+
+// Trim a device string down to something a card can show without overflow.
+function shortGPU(g){
+  if (!g) return 'Unknown';
+  // Pull the most recognisable chunk out of verbose ANGLE/WebGL renderer strings.
+  let s = g.replace(/ANGLE\s*\(/i,'').replace(/\)$/,'');
+  const m = s.match(/(NVIDIA|GeForce|Radeon|AMD|Intel|Apple|Adreno|Mali|PowerVR)[^,;()]*/i);
+  if (m) s = m[0];
+  s = s.replace(/\s+/g,' ').trim();
+  return s.length > 34 ? s.slice(0,33) + '…' : s;
+}
+
+function roundRectPath(x, c, y, w, h, r){
+  x.beginPath();
+  x.moveTo(c+r, y); x.arcTo(c+w, y, c+w, y+h, r); x.arcTo(c+w, y+h, c, y+h, r);
+  x.arcTo(c, y+h, c, y, r); x.arcTo(c, y, c+w, y, r); x.closePath();
+}
+
+function drawCard(){
+  const S = 2;                              // supersample for crisp text on export
+  const W = 480, H = 680;
+  const cv = document.createElement('canvas');
+  cv.width = W*S; cv.height = H*S;
+  const x = cv.getContext('2d');
+  x.scale(S, S);
+
+  const s = computeStats();
+  const rank = rankFor(s.avgFps);
+  const pad = 22;
+
+  // ---- background: deep panel with a subtle vertical glow ----
+  const bg = x.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0, '#0d1622'); bg.addColorStop(0.5, '#0a0e14'); bg.addColorStop(1, '#070a10');
+  x.fillStyle = bg; x.fillRect(0,0,W,H);
+
+  // ---- outer frame (accent-tinted, like a foil border) ----
+  roundRectPath(x, 8, 8, W-16, H-16, 16);
+  const frame = x.createLinearGradient(0,0,W,H);
+  frame.addColorStop(0, rank.accent); frame.addColorStop(0.5, '#2a3a4a'); frame.addColorStop(1, rank.accent);
+  x.lineWidth = 3; x.strokeStyle = frame; x.stroke();
+  roundRectPath(x, 14, 14, W-28, H-28, 12);
+  x.lineWidth = 1; x.strokeStyle = 'rgba(120,200,255,0.18)'; x.stroke();
+
+  const FM = 'ui-monospace, "SF Mono", Menlo, monospace';
+  const left = pad + 4, right = W - pad - 4, innerW = right - left;
+
+  // ---- header band ----
+  let cy = 40;
+  x.textBaseline = 'alphabetic';
+  x.fillStyle = '#4dd0ff'; x.font = `700 11px ${FM}`;
+  x.save(); x.letterSpacing = '4px';
+  x.fillText('CHASSIS', left, cy);
+  x.restore();
+  // rank pill, top-right
+  const pillW = 104, pillH = 26, pillX = right - pillW, pillY = cy - 18;
+  roundRectPath(x, pillX, pillY, pillW, pillH, 13);
+  x.fillStyle = 'rgba(0,0,0,0.35)'; x.fill();
+  x.lineWidth = 1.5; x.strokeStyle = rank.accent; x.stroke();
+  x.fillStyle = rank.accent; x.font = `700 11px ${FM}`; x.textAlign = 'center';
+  x.fillText(rank.tier + ' · ' + rank.name, pillX + pillW/2, pillY + 17);
+  x.textAlign = 'left';
+  cy += 10;
+  x.fillStyle = '#7a90a8'; x.font = `9px ${FM}`;
+  x.save(); x.letterSpacing = '2px';
+  x.fillText('CINEMATIC TRACK · BENCHMARK CERTIFICATE', left, cy);
+  x.restore();
+
+  // divider
+  cy += 12;
+  x.strokeStyle = 'rgba(120,200,255,0.15)'; x.lineWidth = 1;
+  x.beginPath(); x.moveTo(left, cy); x.lineTo(right, cy); x.stroke();
+
+  // ---- hero: big average FPS ----
+  cy += 46;
+  x.fillStyle = '#eaf3ff'; x.font = `700 72px ${FM}`;
+  x.fillText(s.avgFps.toFixed(1), left, cy);
+  const wNum = x.measureText(s.avgFps.toFixed(1)).width;
+  x.fillStyle = rank.accent; x.font = `700 18px ${FM}`;
+  x.fillText('FPS', left + wNum + 12, cy);
+  x.fillStyle = '#7a90a8'; x.font = `9px ${FM}`;
+  x.save(); x.letterSpacing = '2px';
+  x.fillText('AVERAGE FRAMERATE', left + wNum + 12, cy - 22);
+  x.restore();
+
+  // ---- three sub-stats (1% low / 0.1% low / avg frametime) ----
+  cy += 20;
+  const colW = innerW / 3;
+  const subs = [
+    ['1% LOW',    s.low1.toFixed(1),  'fps'],
+    ['0.1% LOW',  s.low01.toFixed(1), 'fps'],
+    ['FRAME',     s.avgFt.toFixed(2), 'ms'],
+  ];
+  subs.forEach((c,i)=>{
+    const cx0 = left + colW*i;
+    x.fillStyle = '#7a90a8'; x.font = `8px ${FM}`;
+    x.save(); x.letterSpacing = '1.5px'; x.fillText(c[0], cx0, cy); x.restore();
+    x.fillStyle = '#eaf3ff'; x.font = `700 22px ${FM}`;
+    x.fillText(c[1], cx0, cy + 24);
+    const wv = x.measureText(c[1]).width;
+    x.fillStyle = '#7a90a8'; x.font = `9px ${FM}`;
+    x.fillText(c[2], cx0 + wv + 4, cy + 24);
+  });
+
+  // ---- frametime graph ----
+  cy += 40;
+  x.fillStyle = '#7a90a8'; x.font = `8px ${FM}`;
+  x.save(); x.letterSpacing = '1.5px'; x.fillText('FRAME TIME · WHOLE RUN', left, cy); x.restore();
+  cy += 8;
+  const gX = left, gY = cy, gW = innerW, gH = 96;
+  roundRectPath(x, gX, gY, gW, gH, 6);
+  x.fillStyle = 'rgba(77,208,255,0.04)'; x.fill();
+  x.strokeStyle = 'rgba(120,200,255,0.12)'; x.lineWidth = 1; x.stroke();
+
+  const ft = s.ftArr;
+  // Cap the vertical scale so a couple of spikes don't flatten the whole trace.
+  const p99 = s.ftSorted[Math.min(s.ftSorted.length-1, Math.round(0.99*(s.ftSorted.length-1)))];
+  const gMax = Math.max(p99 * 1.15, s.avgFt * 1.6, 8);
+
+  x.save();
+  roundRectPath(x, gX, gY, gW, gH, 6); x.clip();
+  // 60fps (16.67ms) reference line if it's on-scale
+  const refMs = 1000/60;
+  if (refMs < gMax){
+    const ry = gY + gH - (refMs/gMax)*gH;
+    x.strokeStyle = 'rgba(92,255,177,0.35)'; x.setLineDash([4,4]); x.lineWidth = 1;
+    x.beginPath(); x.moveTo(gX, ry); x.lineTo(gX+gW, ry); x.stroke(); x.setLineDash([]);
+    x.fillStyle = 'rgba(92,255,177,0.6)'; x.font = `8px ${FM}`;
+    x.fillText('60', gX+4, ry-3);
+  }
+  // the trace (filled area under the line)
+  x.beginPath();
+  ft.forEach((v,i)=>{
+    const px = gX + (i/(ft.length-1))*gW;
+    const py = gY + gH - Math.min(1, v/gMax)*gH;
+    i ? x.lineTo(px,py) : x.moveTo(px,py);
+  });
+  x.lineTo(gX+gW, gY+gH); x.lineTo(gX, gY+gH); x.closePath();
+  const gg = x.createLinearGradient(0,gY,0,gY+gH);
+  gg.addColorStop(0, 'rgba(77,208,255,0.30)'); gg.addColorStop(1, 'rgba(77,208,255,0)');
+  x.fillStyle = gg; x.fill();
+  x.beginPath();
+  ft.forEach((v,i)=>{
+    const px = gX + (i/(ft.length-1))*gW;
+    const py = gY + gH - Math.min(1, v/gMax)*gH;
+    i ? x.lineTo(px,py) : x.moveTo(px,py);
+  });
+  x.strokeStyle = '#4dd0ff'; x.lineWidth = 1.4; x.stroke();
+  x.restore();
+  cy = gY + gH;
+
+  // ---- system spec block ----
+  cy += 26;
+  const rows = [
+    ['GRAPHICS API', backendLabel.replace(' (via three.js)','')],
+    ['GPU',          shortGPU(s.gpu)],
+    ['RESOLUTION',   RENDER_W + '×' + RENDER_H],
+    ['CPU THREADS',  String(navigator.hardwareConcurrency || 'n/a') +
+                     (navigator.deviceMemory ? '   ·   ~' + navigator.deviceMemory + ' GB RAM' : '')],
+    ['MIN / MAX',    s.minFps.toFixed(0) + ' – ' + s.maxFps.toFixed(0) + ' fps   ·   σ ' + s.stdevFps.toFixed(1)],
+    ['SAMPLE',       s.f.length + ' frames · ' + bench.elapsed.toFixed(0) + 's'],
+  ];
+  x.font = `10px ${FM}`;
+  rows.forEach(r=>{
+    x.fillStyle = '#7a90a8';
+    x.save(); x.letterSpacing = '1px'; x.fillText(r[0], left, cy); x.restore();
+    x.fillStyle = '#eaf3ff'; x.textAlign = 'right';
+    x.fillText(r[1], right, cy);
+    x.textAlign = 'left';
+    x.strokeStyle = 'rgba(120,200,255,0.06)'; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(left, cy+6); x.lineTo(right, cy+6); x.stroke();
+    cy += 22;
+  });
+
+  // ---- footer ----
+  const date = new Date(bench.startedAtISO);
+  const dstr = isNaN(date) ? bench.startedAtISO.slice(0,10)
+             : date.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+  x.fillStyle = '#5a6b7d'; x.font = `8px ${FM}`;
+  x.save(); x.letterSpacing = '1.5px';
+  x.fillText('ISSUED ' + dstr.toUpperCase(), left, H - 26);
+  x.restore();
+  x.textAlign = 'right';
+  x.fillStyle = rank.accent;
+  x.save(); x.letterSpacing = '1.5px';
+  x.fillText('◈ CERTIFIED RUN', right, H - 26);
+  x.restore();
+  x.textAlign = 'left';
+
+  return cv;
+}
+
+function downloadCard(){
+  let cv;
+  try { cv = drawCard(); }
+  catch(e){ console.warn('card render failed', e); return; }
+  cv.toBlob(blob => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = bench.startedAtISO.replace(/[:.]/g,'-').replace('T','_').slice(0,19);
+    a.href = url; a.download = 'chassis-card_' + stamp + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  }, 'image/png');
 }
 
 
