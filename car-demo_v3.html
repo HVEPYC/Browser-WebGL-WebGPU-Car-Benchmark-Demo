@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chassis — Cinematic Track</title>
+<style>
+  :root {
+    --ink: #0a0e14;
+    --panel: rgba(14, 20, 30, 0.72);
+    --line: rgba(120, 200, 255, 0.18);
+    --hot: #4dd0ff;
+    --hot-dim: #7a90a8;
+    --amber: #ffb14d;
+    --good: #5cffb1;
+    --warn: #ff6b6b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  body {
+    font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
+    color: #dfe9f5;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Canvas renders at a fixed 1920x1080 buffer; JS sets its CSS size/offset to
+     fit the screen, centered. The black body shows through as letterbox bars. */
+  #scene { position: fixed; display: block; }
+
+  .hud {
+    position: fixed; top: 16px; left: 16px; width: 268px;
+    background: var(--panel);
+    backdrop-filter: blur(14px) saturate(1.4);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 14px 16px 16px; z-index: 10; pointer-events: none;
+  }
+  .hud h1 { font-size: 10px; letter-spacing: 0.34em; font-weight: 700; color: var(--hot); text-transform: uppercase; margin-bottom: 2px; }
+  .hud .sub { font-size: 9px; letter-spacing: 0.18em; color: var(--hot-dim); text-transform: uppercase; margin-bottom: 14px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-bottom: 1px solid rgba(120,200,255,0.06); }
+  .row:last-child { border-bottom: none; }
+  .k { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--hot-dim); }
+  .v { font-size: 12px; font-variant-numeric: tabular-nums; color: #eaf3ff; text-align: right; }
+  .v.api { color: var(--amber); font-size: 10px; letter-spacing: 0.04em; max-width: 150px; }
+  .v.big { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .v.good { color: var(--good); }
+  .v.warn { color: var(--warn); }
+
+  .spark-wrap { margin-top: 12px; }
+  .spark-label { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--hot-dim); margin-bottom: 5px; }
+  #spark { display: block; width: 100%; height: 40px; border: 1px solid rgba(120,200,255,0.1); border-radius: 3px; }
+
+  .shot {
+    position: fixed; bottom: 72px; left: 20px; z-index: 10; pointer-events: none;
+    font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: #eaf3ff;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.8);
+  }
+  .shot .cam { color: var(--amber); }
+  .shot .eyebrow { display:block; font-size: 8px; letter-spacing: 0.34em; color: var(--hot-dim); margin-bottom: 3px; }
+
+  .bar { position: fixed; left: 0; width: 100%; height: 6vh; background: #000; z-index: 9; pointer-events: none; }
+  .bar.top { top: 0; } .bar.bottom { bottom: 0; }
+
+  .controls { position: fixed; bottom: 14px; left: 20px; z-index: 20; display: flex; gap: 10px; }
+  .ctl {
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    appearance: none; cursor: pointer; user-select: none;
+    font-family: inherit; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: #eaf3ff; background: var(--panel);
+    backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 12px 16px; min-height: 44px;
+    transition: transform .06s ease, border-color .15s ease, color .15s ease;
+  }
+  .ctl:active { transform: scale(0.95); border-color: var(--hot); }
+  .ctl.off { color: var(--hot-dim); border-color: rgba(120,200,255,0.1); }
+  .ctl.bench { color: var(--amber); border-color: rgba(255,177,77,0.4); }
+  .ctl.bench.running { color: var(--warn); border-color: rgba(255,107,107,0.6); }
+  .ctl.api-toggle { color: var(--good); border-color: rgba(92,255,177,0.35); }
+  .ctl.api-toggle.disabled { color: var(--hot-dim); border-color: rgba(120,200,255,0.1); cursor: not-allowed; opacity: 0.55; }
+
+  /* benchmark status banner, centered up top */
+  .bench-banner {
+    position: fixed; top: 8vh; left: 50%; transform: translateX(-50%);
+    z-index: 30; pointer-events: none; text-align: center;
+    background: rgba(10,14,20,0.85); border: 1px solid rgba(255,177,77,0.4);
+    border-radius: 4px; padding: 10px 20px; display: none;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  }
+  .bench-banner.show { display: block; }
+  .bench-banner .t { font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--amber); }
+  .bench-banner .n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; color: #eaf3ff; margin-top: 3px; }
+  .bench-banner .bar-track { width: 200px; height: 3px; background: rgba(255,255,255,0.12); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .bench-banner .bar-fill { height: 100%; width: 0%; background: var(--amber); transition: width .1s linear; }
+  .badge { position: fixed; bottom: 14px; right: 16px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--hot-dim); z-index: 10; pointer-events: none; }
+  .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--good); margin-right:6px; vertical-align: middle; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  @media (max-width: 520px) {
+    .hud { width: 210px; top: 12px; left: 12px; padding: 12px; }
+    .shot { font-size: 10px; bottom: 74px; }
+    .ctl { font-size: 9px; padding: 11px 13px; letter-spacing: 0.12em; }
+    .controls { gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="bar top"></div>
+<div class="bar bottom"></div>
+
+<div class="hud">
+  <h1>Chassis</h1>
+  <div class="sub">Cinematic Track Telemetry</div>
+  <div class="row"><span class="k">Graphics API</span><span class="v api" id="api">—</span></div>
+  <div class="row"><span class="k">GPU</span><span class="v" id="gpu" style="font-size:9px; max-width:150px; line-height:1.4">—</span></div>
+  <div class="row"><span class="k">Resolution</span><span class="v" id="res">—</span></div>
+  <div class="row"><span class="k">Draw calls</span><span class="v" id="draws">—</span></div>
+  <div class="row"><span class="k">Triangles</span><span class="v" id="tris">—</span></div>
+  <div class="row"><span class="k">Car speed</span><span class="v" id="spd">—</span></div>
+  <div class="row"><span class="k">Frame time</span><span class="v" id="ft">—</span></div>
+  <div class="row"><span class="k">FPS</span><span class="v big good" id="fps">—</span></div>
+  <div class="spark-wrap">
+    <div class="spark-label"><span>FPS · 120f</span><span id="minmax">—</span></div>
+    <canvas id="spark" width="236" height="40"></canvas>
+  </div>
+</div>
+
+<div class="shot">
+  <span class="eyebrow">Camera</span>
+  <span class="cam" id="camname">CHASE</span>
+</div>
+
+<div class="controls">
+  <button id="btn-next" class="ctl"><span class="lbl">Next shot</span></button>
+  <button id="btn-auto" class="ctl"><span class="lbl">Auto-cut: on</span></button>
+  <button id="btn-api" class="ctl api-toggle"><span class="lbl">API</span></button>
+  <button id="btn-bench" class="ctl bench"><span class="lbl">Benchmark</span></button>
+</div>
+<div class="bench-banner" id="bench-banner">
+  <div class="t">Benchmarking</div>
+  <div class="n" id="bench-count">0.0s</div>
+  <div class="bar-track"><div class="bar-fill" id="bench-fill"></div></div>
+</div>
+<div class="badge"><span class="dot"></span>Live</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+  "three/webgpu": "https://unpkg.com/three@0.160.0/examples/jsm/renderers/webgpu/WebGPURenderer.js",
+  "three/webgpu-capabilities": "https://unpkg.com/three@0.160.0/examples/jsm/capabilities/WebGPU.js"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const RENDER_W = 1920, RENDER_H = 1080;   // fixed internal render viewport
+const canvas = document.getElementById('scene');
+
+// ============ BACKEND SELECTION (WebGL / WebGPU) ============
+// The desired backend is read from the ?api= URL param so a swap survives the
+// page reload we use to rebuild the renderer cleanly. Availability of WebGPU is
+// probed up front; if unsupported we silently fall back to WebGL and disable the
+// toggle. `backend` is the string we actually end up running on.
+const urlParams = new URLSearchParams(location.search);
+let requestedBackend = urlParams.get('api');            // 'webgpu' | 'webgl' | null
+
+async function detectWebGPU(){
+  // Prefer three's own capability probe, fall back to a direct adapter request.
+  try {
+    const { default: WebGPUCap } = await import('three/webgpu-capabilities');
+    if (WebGPUCap && typeof WebGPUCap.isAvailable === 'function') return !!WebGPUCap.isAvailable();
+  } catch(e){}
+  if (!('gpu' in navigator)) return false;
+  try { return !!(await navigator.gpu.requestAdapter()); } catch(e){ return false; }
+}
+
+const webgpuSupported = await detectWebGPU();
+
+// Resolve the backend actually used this session.
+let backend;
+if (requestedBackend === 'webgpu' && webgpuSupported) backend = 'webgpu';
+else backend = 'webgl';   // default, and the fallback when WebGPU is requested but absent
+
+// Build the renderer for the chosen backend. WebGPURenderer needs an async
+// init() before first render; WebGLRenderer is ready immediately. We expose a
+// tiny uniform surface (backendLabel, gpuName, drawCalls, triangles) so the rest
+// of the app doesn't care which renderer.info shape it's talking to.
+let renderer, backendLabel = '—', gpuName = 'Unknown';
+
+async function buildRenderer(){
+  if (backend === 'webgpu'){
+    const { default: WebGPURenderer } = await import('three/webgpu');
+    renderer = new WebGPURenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(1);
+    renderer.setSize(RENDER_W, RENDER_H, false);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    await renderer.init();
+    backendLabel = 'WebGPU (via three.js)';
+    // WebGPU intentionally hides adapter/vendor strings for privacy; there's no
+    // UNMASKED_RENDERER equivalent. Report what the adapter exposes, if anything.
+    try {
+      const info = renderer.backend?.adapter?.info || navigator.gpu?.__adapterInfo;
+      const bits = [info?.vendor, info?.architecture, info?.description].filter(Boolean);
+      gpuName = bits.length ? bits.join(' · ') : 'WebGPU adapter (details hidden by browser)';
+    } catch(e){ gpuName = 'WebGPU adapter (details hidden by browser)'; }
+  } else {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    // Always render at exactly 1920x1080 into the drawing buffer, regardless of the
+    // device screen or orientation. CSS then scales the canvas to fit (letterboxed).
+    renderer.setPixelRatio(1);
+    renderer.setSize(RENDER_W, RENDER_H, false);  // false = don't touch CSS size
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    const gl = renderer.getContext();
+    const isGL2 = (typeof WebGL2RenderingContext !== 'undefined') && (gl instanceof WebGL2RenderingContext);
+    backendLabel = (isGL2 ? 'WebGL 2.0' : 'WebGL 1.0') + ' (via three.js)';
+    try {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      gpuName = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    } catch(e){}
+  }
+}
+
+await buildRenderer();
+
+// Reflect the resolved backend + GPU in the HUD.
+document.getElementById('api').textContent = backendLabel;
+document.getElementById('gpu').textContent = gpuName;
+
+// Uniform per-frame metric accessors that work across both renderer.info shapes.
+// WebGPURenderer.info also nests render.{drawCalls,triangles}; older paths differ,
+// so we defensively read both spellings.
+function drawCalls(){
+  const r = renderer.info?.render || {};
+  return r.calls ?? r.drawCalls ?? 0;
+}
+function triangleCount(){
+  const r = renderer.info?.render || {};
+  return r.triangles ?? 0;
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0e14);
+scene.fog = new THREE.Fog(0x0a0e14, 40, 130);
+
+const camera = new THREE.PerspectiveCamera(38, RENDER_W/RENDER_H, 0.1, 400);
+camera.position.set(0, 8, 20);
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// ---- lights ----
+// Main sun / key light. Its shadow frustum is kept tight and re-centred on the
+// car each frame (see updateLighting), so the 2048² shadow map concentrates its
+// resolution where the camera is actually looking — much crisper real-time
+// shadows than spreading one map across the whole track.
+const key = new THREE.DirectionalLight(0xfff2e0, 2.7);
+key.position.set(30, 44, 20);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 1; key.shadow.camera.far = 120;
+const SHADOW_HALF = 26;   // tight frustum that follows the car
+key.shadow.camera.left = -SHADOW_HALF; key.shadow.camera.right = SHADOW_HALF;
+key.shadow.camera.top = SHADOW_HALF; key.shadow.camera.bottom = -SHADOW_HALF;
+key.shadow.bias = -0.0003;
+key.shadow.normalBias = 0.02;
+scene.add(key);
+scene.add(key.target);
+const hemi = new THREE.HemisphereLight(0x9fc4ff, 0x1a1206, 0.55);
+scene.add(hemi);
+const rim = new THREE.DirectionalLight(0x4dd0ff, 1.2);
+rim.position.set(-30, 16, -24);
+scene.add(rim);
+
+// A slow day-cycle: the sun swings overhead and its colour/intensity shifts
+// between warm dusk and cool midday. Purely dynamic — recomputed every frame.
+const sunPivot = new THREE.Vector3();
+function updateLighting(elapsed){
+  const ang = elapsed * 0.06;                  // slow orbit
+  const height = 30 + Math.sin(ang) * 16;
+  key.position.set(
+    carPos.x + Math.cos(ang) * 40,
+    Math.max(14, height),
+    carPos.z + Math.sin(ang) * 40
+  );
+  // keep the shadow frustum centred on the car
+  key.target.position.copy(carPos);
+  key.target.updateMatrixWorld();
+  // warm when low, cooler when high
+  const warmth = THREE.MathUtils.clamp((height - 14) / 32, 0, 1);
+  key.color.setRGB(1.0, 0.90 + warmth*0.05, 0.80 + warmth*0.15);
+  key.intensity = 2.2 + warmth * 0.8;
+  hemi.intensity = 0.4 + warmth * 0.3;
+}
+
+// =================== TRACK ===================
+const ctrl = [
+  [0,   0,  46], [34,  0,  40], [52,  0,  10], [40,  0, -26],
+  [8,   0, -44], [-26, 0, -40], [-50, 0, -14], [-52, 0,  20],
+  [-30, 0,  42]
+].map(p => new THREE.Vector3(p[0], p[1], p[2]));
+const track = new THREE.CatmullRomCurve3(ctrl, true, 'catmullrom', 0.5);
+
+// =================== TERRAIN ELEVATION ======================================
+// The single source of truth for the road's height at any point along the loop.
+// The road mesh, the car body, and its suspension all sample this same function
+// so everything stays perfectly consistent. `u` is the 0..1 track parameter.
+// Several sine waves at different frequencies give rolling hills, dips, and a
+// couple of sharper crests without any discontinuity at the u=0/u=1 seam
+// (all periods divide evenly into a full loop).
+function roadHeight(u){
+  const a = Math.sin(u * Math.PI * 2 * 3) * 2.6;   // 3 big rolls per lap
+  const b = Math.sin(u * Math.PI * 2 * 6 + 1.3) * 1.1; // 6 smaller undulations
+  const c = Math.sin(u * Math.PI * 2 * 11 + 0.6) * 0.35; // fine ripples
+  return a + b + c;
+}
+
+// The terrain (roadHeight) dips below y=0, so the flat ground and grid must sit
+// beneath its lowest point or they'd float above — and occlude — the road in
+// dips. roadHeight's amplitude sums to about 4.05, so -6 clears it with margin.
+const GROUND_Y = -6;
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(200, 72),
+  new THREE.MeshStandardMaterial({ color: 0x0c1119, roughness: 0.95, metalness: 0.0 })
+);
+ground.rotation.x = -Math.PI/2; ground.position.y = GROUND_Y; ground.receiveShadow = true;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(400, 80, 0x163049, 0x0f2130);
+grid.position.y = GROUND_Y + 0.02;
+grid.material.opacity = 0.5; grid.material.transparent = true;
+scene.add(grid);
+
+const ROAD_W = 12;       // full asphalt width (two lanes)
+const SHOULDER_W = 2.4;  // verge strip on each side
+
+// Build a ribbon strip of given half-width, sitting `yOffset` above the terrain.
+function buildRibbon(halfW, yOffset, material, uvRepeat){
+  const N = 500;
+  const positions = [], uvs = [], indices = [];
+  for (let i=0;i<=N;i++){
+    const tt = (i % N)/N;
+    const p = track.getPointAt(tt);
+    const t = track.getTangentAt(tt);
+    const side = new THREE.Vector3(-t.z, 0, t.x).normalize();
+    const h = roadHeight(tt) + yOffset;          // lift onto the terrain
+    const left  = p.clone().addScaledVector(side,  halfW);
+    const right = p.clone().addScaledVector(side, -halfW);
+    positions.push(left.x, h, left.z, right.x, h, right.z);
+    uvs.push(0, (i/N)*uvRepeat, 1, (i/N)*uvRepeat);
+    // Winding: order the two triangles so their front faces point UP. Traversing
+    // the track (+tt) with left at +side and right at -side, this order gives an
+    // upward normal. computeVertexNormals then confirms it per-vertex.
+    if (i < N){ const a=i*2,b=i*2+1,c=i*2+2,d=i*2+3; indices.push(a,c,b, b,c,d); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs,2));
+  g.setIndex(indices); g.computeVertexNormals();
+  // Render both sides so the surface is never culled from the camera angles the
+  // cinematic shots use (some skim right at road level).
+  material.side = THREE.DoubleSide;
+  const mesh = new THREE.Mesh(g, material);
+  mesh.receiveShadow = true; scene.add(mesh); return mesh;
+}
+
+function asphaltTexture(){
+  const c = document.createElement('canvas'); c.width=256; c.height=1024;
+  const x = c.getContext('2d');
+  // base asphalt with grain
+  x.fillStyle = '#1b1f25'; x.fillRect(0,0,256,1024);
+  for(let i=0;i<4000;i++){
+    const g = 20 + Math.random()*26;
+    x.fillStyle = `rgb(${g},${g+3},${g+7})`;
+    x.fillRect(Math.random()*256, Math.random()*1024, 1.5, 1.5);
+  }
+  // subtle darker tyre-wear bands in each lane
+  x.fillStyle = 'rgba(0,0,0,0.18)';
+  x.fillRect(74, 0, 26, 1024); x.fillRect(156, 0, 26, 1024);
+  // solid white edge lines
+  x.fillStyle = '#d7dde4';
+  x.fillRect(14, 0, 6, 1024); x.fillRect(236, 0, 6, 1024);
+  // dashed yellow centre line
+  x.fillStyle = '#e8c14a';
+  for(let y=0; y<1024; y+=90){ x.fillRect(125, y, 6, 52); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+// shoulder / verge: darker aggregate, slightly lower and wider than the road
+const shoulderTex = (() => {
+  const c = document.createElement('canvas'); c.width=64; c.height=64;
+  const x = c.getContext('2d');
+  x.fillStyle = '#191d16'; x.fillRect(0,0,64,64);
+  for(let i=0;i<600;i++){ const g=18+Math.random()*22; x.fillStyle=`rgb(${g},${g+6},${g})`; x.fillRect(Math.random()*64,Math.random()*64,1.5,1.5); }
+  const t = new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(1,60); return t;
+})();
+
+// A wide earth apron that follows the terrain and extends well past the road,
+// so in dips the road rests on visible ground instead of floating over the
+// distant flat plane. Sits just below the shoulder.
+const earthTex = (() => {
+  const c = document.createElement('canvas'); c.width=64; c.height=64;
+  const x = c.getContext('2d');
+  x.fillStyle = '#0e1510'; x.fillRect(0,0,64,64);
+  for(let i=0;i<500;i++){ const g=10+Math.random()*16; x.fillStyle=`rgb(${g},${g+5},${g})`; x.fillRect(Math.random()*64,Math.random()*64,1.6,1.6); }
+  const t = new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(3,80); return t;
+})();
+buildRibbon((ROAD_W/2)+SHOULDER_W+22, -0.05, new THREE.MeshStandardMaterial({ map: earthTex, roughness: 1.0, metalness: 0.0 }), 1);
+
+// draw order: shoulder (lower, wider) first, then asphalt on top
+buildRibbon((ROAD_W/2)+SHOULDER_W, 0.015, new THREE.MeshStandardMaterial({ map: shoulderTex, roughness: 0.9, metalness: 0.1 }), 1);
+// Wet-look asphalt: low roughness + metalness so the environment map reflects
+// off it, and strong envMapIntensity. Reflective surfaces cost more per fragment.
+const roadMat = new THREE.MeshStandardMaterial({
+  map: asphaltTexture(), roughness: 0.28, metalness: 0.55, envMapIntensity: 1.3
+});
+buildRibbon(ROAD_W/2, 0.035, roadMat, 26);
+
+// ---- roadside lamp posts with glowing heads ----------------------------------
+// Posts and arms are static geometry. A small pool of dynamic point lights
+// (below) travels with the car and lights whichever lamps are nearby, so the
+// scene has moving illumination without paying for a light at every lamp.
+const postMat = new THREE.MeshStandardMaterial({ color: 0x2a3038, roughness: 0.5, metalness: 0.7 });
+const lampGlassMat = new THREE.MeshStandardMaterial({ color: 0xffdca8, emissive: 0xffb347, emissiveIntensity: 1.8, roughness: 0.4 });
+const lampPositions = [];
+const NUM_LAMPS = 34;
+for (let i=0;i<NUM_LAMPS;i++){
+  const t = i/NUM_LAMPS;
+  const p = track.getPointAt(t);
+  const tan = track.getTangentAt(t);
+  const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+  const sign = i % 2 === 0 ? 1 : -1;
+  const base = p.clone().addScaledVector(side, sign * (ROAD_W/2 + SHOULDER_W + 0.6));
+
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 4.2, 8), postMat);
+  pole.position.y = 2.1; g.add(pole);   // no shadow cast (keeps shadow pass light)
+  // arm reaching over the road
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.14, 0.14), postMat);
+  arm.position.set(-sign*0.8, 4.1, 0); g.add(arm);
+  // glowing lamp head
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.22, 0.4), lampGlassMat);
+  const headPos = new THREE.Vector3(-sign*1.5, 4.0, 0);
+  head.position.copy(headPos); g.add(head);
+  g.position.copy(base); g.position.y = roadHeight(t); scene.add(g);
+
+  lampPositions.push(base.clone().add(new THREE.Vector3(-sign*1.5, 4.0 + roadHeight(t), 0)));
+}
+
+// Pool of dynamic point lights. Each frame we assign the pool to the nearest
+// lamp heads to the car, so lit pools of light sweep past as the car drives.
+// Kept small (4) with limited range — point lights are the main per-fragment
+// cost on mobile GPUs, so this is the knob to watch for framerate.
+const NUM_DYN_LIGHTS = 4;
+const dynLights = [];
+for (let i=0;i<NUM_DYN_LIGHTS;i++){
+  const pl = new THREE.PointLight(0xffb347, 0, 18, 2.0);  // intensity set per-frame
+  scene.add(pl);
+  dynLights.push(pl);
+}
+function updateDynamicLights(){
+  // find nearest lamp heads to the car and park a light at each
+  const scored = lampPositions
+    .map((lp, idx) => ({ idx, d: lp.distanceToSquared(carPos) }))
+    .sort((a,b)=>a.d-b.d)
+    .slice(0, NUM_DYN_LIGHTS);
+  scored.forEach((s, i) => {
+    const pl = dynLights[i];
+    pl.position.copy(lampPositions[s.idx]);
+    // fade with distance so they pop on smoothly rather than snapping
+    const dist = Math.sqrt(s.d);
+    pl.intensity = THREE.MathUtils.clamp(1.4 - dist/26, 0, 1.4) * 14;
+  });
+}
+
+// ---- distant skyline (instanced: one draw call for all pillars) -------------
+const pillarGeo = new THREE.BoxGeometry(6, 1, 6);
+const pillarMat = new THREE.MeshStandardMaterial({ color: 0x11202e, roughness: 0.9, metalness: 0.1 });
+const NUM_PILLARS = 40;
+const pillars = new THREE.InstancedMesh(pillarGeo, pillarMat, NUM_PILLARS);
+pillars.castShadow = false; pillars.receiveShadow = false;
+const _m = new THREE.Matrix4();
+for (let i=0;i<NUM_PILLARS;i++){
+  const a = (i/NUM_PILLARS)*Math.PI*2 + Math.random()*0.1;
+  const r = 120 + Math.random()*50;
+  const h = 8 + Math.random()*40;
+  _m.makeScale(1, h, 1);
+  _m.setPosition(Math.cos(a)*r, h/2, Math.sin(a)*r);
+  pillars.setMatrixAt(i, _m);
+}
+pillars.instanceMatrix.needsUpdate = true;
+scene.add(pillars);
+
+// =================== CAR ===================
+const car = new THREE.Group();
+scene.add(car);
+const carBody = new THREE.Group();
+car.add(carBody);
+
+const bodyMat = new THREE.MeshPhysicalMaterial({ color: 0xd8452a, metalness: 0.9, roughness: 0.28, clearcoat: 1.0, clearcoatRoughness: 0.12, envMapIntensity: 1.4 });
+const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x10151c, metalness: 0, roughness: 0.05, transmission: 0.85, transparent: true, opacity: 0.5, envMapIntensity: 1.2 });
+const trimMat = new THREE.MeshStandardMaterial({ color: 0x14181e, metalness: 0.7, roughness: 0.35 });
+const chromeMat = new THREE.MeshStandardMaterial({ color: 0xcfd8e3, metalness: 1.0, roughness: 0.15, envMapIntensity: 1.6 });
+
+function box(w,h,d,mat,x=0,y=0,z=0){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+  m.position.set(x,y,z); m.castShadow = true; m.receiveShadow = true; carBody.add(m); return m;
+}
+box(4.2,0.5,1.9, bodyMat, 0,0.55,0);
+box(4.4,0.45,2.0, bodyMat, 0,0.85,0);
+box(1.5,0.35,1.85, bodyMat, 1.45,1.05,0);
+box(1.1,0.4,1.85, bodyMat, -1.6,1.05,0);
+const cabin = box(2.0,0.65,1.7, bodyMat, -0.05,1.42,0); cabin.scale.set(1,1,0.94);
+const ws = box(0.12,0.55,1.55, glassMat, 0.98,1.42,0); ws.rotation.z = 0.5;
+const rw = box(0.12,0.5,1.55, glassMat, -1.05,1.44,0); rw.rotation.z = -0.55;
+box(1.7,0.5,0.05, glassMat, -0.05,1.45,0.83);
+box(1.7,0.5,0.05, glassMat, -0.05,1.45,-0.83);
+box(1.9,0.08,1.6, bodyMat, -0.05,1.73,0);
+const hlMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff3d0, emissiveIntensity: 2.4 });
+const tlMat = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff1010, emissiveIntensity: 2.6 });
+box(0.1,0.2,0.5, hlMat, 2.16,0.9,0.6); box(0.1,0.2,0.5, hlMat, 2.16,0.9,-0.6);
+box(0.1,0.22,0.55, tlMat, -2.16,0.95,0.6); box(0.1,0.22,0.55, tlMat, -2.16,0.95,-0.6);
+box(0.12,0.3,1.2, trimMat, 2.18,0.62,0);
+box(0.2,0.25,2.0, chromeMat, 2.05,0.5,0); box(0.2,0.25,2.0, chromeMat, -2.05,0.5,0);
+box(0.14,0.12,0.3, trimMat, 0.75,1.35,1.05); box(0.14,0.12,0.3, trimMat, 0.75,1.35,-1.05);
+
+const beamL = new THREE.SpotLight(0xfff0d0, 6, 40, 0.5, 0.6, 1.4);
+beamL.position.set(2.2,0.9,0); beamL.target.position.set(14,0,0); carBody.add(beamL); carBody.add(beamL.target);
+
+// ---- wheels: spin axis along Z (car's left-right), hole faces sideways ----
+const wheels = [];
+const WHEEL_AXLE = new THREE.Vector3(0, 0, 1); // axle along the car's width (Z)
+const tireMat = new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.85, metalness: 0.1 });
+const rimMat  = new THREE.MeshStandardMaterial({ color: 0xb8c2cf, metalness: 1.0, roughness: 0.22, envMapIntensity: 1.5 });
+// Wheels are authored in the SAME local frame as the body boxes: the car's
+// forward is +X and its width is +Z, so a wheel's axle must run along Z.
+// A default TorusGeometry already sits in the XY plane with its hole (axle)
+// along Z — which is exactly what we want. No group rotation needed.
+function makeWheel(x, z){
+  const w = new THREE.Group();
+  const tire = new THREE.Mesh(new THREE.TorusGeometry(0.46,0.22,20,36), tireMat);
+  tire.castShadow = true; w.add(tire);
+  // Cylinder default axis is Y; rotate it onto Z so the hub shares the axle.
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.34,0.34,24), rimMat);
+  hub.rotation.x = Math.PI/2; hub.castShadow = true; w.add(hub);
+  // Spokes lie in the wheel face (XY plane), fanned around the axle.
+  for (let i=0;i<6;i++){
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.07,0.09), rimMat);
+    spoke.rotation.z = (i/6)*Math.PI*2; spoke.castShadow = true; w.add(spoke);
+  }
+  w.position.set(x,0.5,z); carBody.add(w);
+  // metadata for the suspension model. axleX/axleZ are the wheel's offset from
+  // the car centre in the model frame (forward = +X, right = +Z). restY is the
+  // wheel's neutral height; travel is applied on top as the spring compresses.
+  w.userData = { restY: 0.5, axleX: x, axleZ: z, travel: 0 };
+  wheels.push(w); return w;
+}
+makeWheel(1.45,1.02); makeWheel(1.45,-1.02); makeWheel(-1.45,1.02); makeWheel(-1.45,-1.02);
+
+// model faces +X; rotate so forward maps to +Z used by lookAt below
+carBody.rotation.y = -Math.PI/2;
+
+// =================== DRIVE ===================
+let u = 0;
+const SPEED = 0.045;
+const carPos = new THREE.Vector3();
+const aheadPos = new THREE.Vector3();
+let carSpeedKmh = 0;
+const prevPos = new THREE.Vector3();
+
+// ---- suspension / body physics state ----------------------------------------
+// The chassis is a damped spring-mass riding on four independent wheel springs.
+// bodyY tracks vertical bob; pitch is nose up/down along the grade; roll is the
+// lean into corners. Each is integrated with its own spring + damping so the
+// body settles naturally instead of snapping to the terrain.
+const susp = {
+  bodyY: 0, bodyVY: 0,        // vertical bob offset (m) and its velocity
+  pitch: 0, pitchV: 0,        // nose up(+)/down(-) radians
+  roll: 0,  rollV: 0,         // lean radians
+};
+const WHEELBASE = 2.9;        // front-to-rear axle distance (2 * 1.45)
+let prevHeading = 0;          // for measuring turn rate -> cornering roll
+const LAP_LEN = track.getLength();  // cached once (used for terrain sampling)
+
+// ---- animated shadow-casters: rotating banner gantries over the road --------
+// These spin slowly and cast real-time shadows that sweep across the asphalt as
+// the car passes beneath — a deliberate showcase of dynamic shadowing.
+const gantryMat = new THREE.MeshStandardMaterial({ color: 0x1c2733, roughness: 0.6, metalness: 0.4 });
+const bannerMat = new THREE.MeshStandardMaterial({ color: 0xd8452a, roughness: 0.5, metalness: 0.2, emissive: 0x2a0a05, emissiveIntensity: 0.5 });
+const spinners = [];
+const NUM_GANTRIES = 5;
+for (let i=0;i<NUM_GANTRIES;i++){
+  const t = (i+0.5)/NUM_GANTRIES;
+  const p = track.getPointAt(t);
+  const tan = track.getTangentAt(t);
+  const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+
+  const g = new THREE.Group();
+  // two uprights + crossbeam spanning the road
+  const spanW = ROAD_W + SHOULDER_W*2 + 2;
+  [-1,1].forEach(sgn => {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.3, 6.5, 0.3), gantryMat);
+    leg.position.set(sgn*spanW/2, 3.25, 0); leg.castShadow = true; g.add(leg);
+  });
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(spanW, 0.5, 0.5), gantryMat);
+  beam.position.y = 6.4; beam.castShadow = true; g.add(beam);
+
+  // a spinning banner blade hung from the beam — this is the moving shadow
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.4, 0.12), bannerMat);
+  blade.position.y = 5.4; blade.castShadow = true; g.add(blade);
+  spinners.push(blade);
+
+  // orient the gantry across the road and place it
+  const angle = Math.atan2(tan.x, tan.z);
+  g.rotation.y = angle;
+  g.position.set(p.x, roadHeight(t), p.z);
+  scene.add(g);
+}
+
+function placeCar(dt){
+  u = (u + SPEED * dt) % 1;
+  track.getPointAt(u, carPos);
+  track.getPointAt((u + 0.008) % 1, aheadPos);
+
+  // --- terrain sampling at the two axle positions along the track ---
+  // Convert the wheelbase (a distance in metres) into a track-parameter delta so
+  // we can sample the road height just ahead of and behind the car centre.
+  const du = (WHEELBASE/2) / LAP_LEN;
+  const hFront = roadHeight((u + du) % 1);
+  const hRear  = roadHeight((u - du + 1) % 1);
+  const hCentre = roadHeight(u);
+
+  // Position the car on the track, lifted onto the terrain.
+  car.position.copy(carPos);
+  car.position.y = hCentre;
+
+  // --- heading: face along travel, kept level ---
+  // The outer car group handles only yaw (which way it points). All up/down
+  // tilt is done by the pitch spring on the body below, so grade response feels
+  // like real suspension rather than the whole rig rigidly following the road.
+  const look = aheadPos.clone();
+  look.y = hCentre;      // level with the car origin -> pure heading, no pitch
+  car.lookAt(look);
+
+  // --- vertical body spring (bob) ---
+  // Target height is the mean of the axle contact points; the body chases it via
+  // a critically-ish damped spring so bumps push it up and it settles back.
+  const targetY = (hFront + hRear)/2 - hCentre;   // relative to car origin
+  const kY = 90, cY = 14;                          // stiffness, damping
+  const aY = kY*(targetY - susp.bodyY) - cY*susp.bodyVY;
+  susp.bodyVY += aY*dt; susp.bodyY += susp.bodyVY*dt;
+
+  // --- pitch spring (nose along the grade) ---
+  // Grade angle from front/rear height difference; body pitch springs toward it.
+  const gradePitch = Math.atan2(hFront - hRear, WHEELBASE);
+  const kP = 60, cP = 11;
+  const aP = kP*(gradePitch - susp.pitch) - cP*susp.pitchV;
+  susp.pitchV += aP*dt; susp.pitch += susp.pitchV*dt;
+
+  // --- roll spring (lean into corners) ---
+  // Turn rate this frame -> lateral acceleration -> body leans outward.
+  const heading = Math.atan2(aheadPos.x - carPos.x, aheadPos.z - carPos.z);
+  let dHead = heading - prevHeading;
+  if (dHead >  Math.PI) dHead -= Math.PI*2;
+  if (dHead < -Math.PI) dHead += Math.PI*2;
+  prevHeading = heading;
+  const turnRate = dHead / Math.max(dt, 0.001);
+  const targetRoll = THREE.MathUtils.clamp(-turnRate * 0.5, -0.14, 0.14);
+  const kR = 55, cR = 10;
+  const aR = kR*(targetRoll - susp.roll) - cR*susp.rollV;
+  susp.rollV += aR*dt; susp.roll += susp.rollV*dt;
+
+  // Apply body bob + pitch + roll on top of the car's heading orientation.
+  // carBody carries the -PI/2 model-align (Y). We add pitch about the model's
+  // lateral axis (local Z) and roll about its forward axis (local X). Using an
+  // explicit 'YZX' Euler order applies Y first, then Z, then X, each about the
+  // intermediate axes — which keeps pitch and roll from cross-contaminating.
+  carBody.position.y = susp.bodyY;
+  carBody.rotation.set(susp.roll, -Math.PI/2, susp.pitch, 'YZX');
+
+  // --- per-wheel spring travel (visible movement in the wheel wells) ---
+  // Each wheel samples the ground under its own along-track position (front
+  // wheels lead, rear wheels trail) and springs toward it, so wheels ride the
+  // surface individually and the axle line articulates over bumps.
+  wheels.forEach(w => {
+    const ud = w.userData;
+    const wheelU = (u + (ud.axleX / LAP_LEN) + 1) % 1;   // forward offset along track
+    const groundRel = roadHeight(wheelU) - hCentre;      // ground vs car origin
+    const target = ud.restY + groundRel - susp.bodyY;    // account for body bob
+    w.position.y += (target - w.position.y) * Math.min(1, dt * 12);
+  });
+
+  const dist = carPos.distanceTo(prevPos);
+  // Spin about the wheel's own axle (local Z, which the base y-rotation aimed
+  // sideways). rotateOnAxis composes correctly on top of that base orientation.
+  wheels.forEach(w => w.rotateOnAxis(WHEEL_AXLE, -dist * 1.4));
+  carSpeedKmh = (dist / dt) * 3.6 * 2.2;
+  prevPos.copy(carPos);
+}
+
+// glossy polished markers along the track (high-spec metal, env reflections
+// from the static environment map — cheap, no live cube rendering)
+const chromePylonMat = new THREE.MeshStandardMaterial({ color: 0xdfe6ee, metalness: 1.0, roughness: 0.12, envMapIntensity: 1.6 });
+for (let i=0;i<18;i++){
+  const t = (i+0.3)/18;
+  const p = track.getPointAt(t);
+  const tan = track.getTangentAt(t);
+  const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+  const sign = i % 2 === 0 ? 1 : -1;
+  const pos = p.clone().addScaledVector(side, sign * (ROAD_W/2 + 0.9));
+  const marker = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,1.1,10), chromePylonMat);
+  marker.position.set(pos.x, 0.55 + roadHeight(t), pos.z); marker.castShadow = true; scene.add(marker);
+}
+
+// =================== CINEMATIC CAMERA ===================
+const tmpTan = new THREE.Vector3();
+function carForward(){ track.getTangentAt(u, tmpTan); return tmpTan.clone().normalize(); }
+
+// Approximate terrain height beneath any world position. The road height is
+// defined along the track parameter u, so we find the u nearest to the query
+// point and read roadHeight there. A coarse scan is plenty for keeping cameras
+// above the surface. Cached samples make it cheap.
+const _trackSamples = [];
+for (let i=0;i<200;i++){ const uu=i/200; const pp=track.getPointAt(uu); _trackSamples.push({u:uu, x:pp.x, z:pp.z}); }
+function terrainHeightAt(x, z){
+  let best=0, bestD=Infinity;
+  for (let i=0;i<_trackSamples.length;i++){
+    const s=_trackSamples[i]; const dx=s.x-x, dz=s.z-z; const d=dx*dx+dz*dz;
+    if (d<bestD){ bestD=d; best=s.u; }
+  }
+  return roadHeight(best);
+}
+// Keep a camera position a minimum clearance above the local surface so shots
+// never dip below the road, especially in terrain dips and low angles.
+function clampAboveGround(pos, clearance){
+  const minY = terrainHeightAt(pos.x, pos.z) + clearance;
+  if (pos.y < minY) pos.y = minY;
+  return pos;
+}
+
+// Deterministic pseudo-random for fixed-camera anchors: seeded only by the shot
+// index so a given shot always frames the same way. This makes benchmark runs
+// reproducible (no Math.random in the camera path).
+function seededUnit(seed){
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);   // 0..1, stable for a given seed
+}
+
+const shots = [
+  { name: 'CHASE', dur: 6, fn: () => {
+      const f = carForward();
+      const pos = carPos.clone().addScaledVector(f, -11).add(new THREE.Vector3(0,4.4,0));
+      return { pos: clampAboveGround(pos, 1.2), target: carPos.clone().add(new THREE.Vector3(0,1.2,0)) };
+  }},
+  { name: 'LOW TRACK', dur: 5, fn: () => {
+      const f = carForward();
+      const side = new THREE.Vector3(-f.z,0,f.x);
+      const pos = carPos.clone().addScaledVector(side, 6).add(new THREE.Vector3(0,0.9,0)).addScaledVector(f,-1);
+      // low angle, but keep it just clear of the surface it sits beside
+      return { pos: clampAboveGround(pos, 0.5), target: carPos.clone().add(new THREE.Vector3(0,0.8,0)) };
+  }},
+  { name: 'FLYBY', dur: 5, fixed: true, fn: (shot) => ({ pos: shot._anchor, target: carPos.clone().add(new THREE.Vector3(0,1,0)) }) },
+  { name: 'HELI', dur: 6, fn: (shot, tt) => {
+      const ang = tt * 0.5;
+      const pos = carPos.clone().add(new THREE.Vector3(Math.cos(ang)*16, 12, Math.sin(ang)*16));
+      return { pos: clampAboveGround(pos, 2), target: carPos.clone() };
+  }},
+  { name: 'FIXED PYLON', dur: 5, fixed: true, fn: (shot) => ({ pos: shot._anchor, target: carPos.clone().add(new THREE.Vector3(0,1,0)) }) },
+];
+
+let shotIndex = 0, shotT = 0, autoCut = true;
+const camPos = new THREE.Vector3().copy(camera.position);
+const camTgt = new THREE.Vector3();
+const camnameEl = document.getElementById('camname');
+
+function anchorFor(seed){
+  // Deterministic placement seeded by the shot index, so the same fixed shot
+  // always frames identically — essential for reproducible benchmark runs.
+  const ahead = (u + 0.10) % 1;
+  const p = track.getPointAt(ahead);
+  const tan = track.getTangentAt(ahead);
+  const side = new THREE.Vector3(-tan.z,0,tan.x).normalize();
+  const sign = seededUnit(seed) > 0.5 ? 1 : -1;
+  const dist = 8 + seededUnit(seed*1.7) * 5;
+  const height = 2 + seededUnit(seed*2.3) * 4;
+  const anchor = p.add(side.multiplyScalar(sign * dist)).add(new THREE.Vector3(0, height, 0));
+  return clampAboveGround(anchor, 1.5);
+}
+
+function startShot(i){
+  shotIndex = i; shotT = 0;
+  const shot = shots[i];
+  // seed fixed-camera anchors by the shot index so they're reproducible
+  if (shot.fixed) shot._anchor = anchorFor(i + 1);
+  camnameEl.textContent = shot.name;
+  const r = shot.fn(shot, 0);
+  if (shot.fixed) camPos.copy(r.pos);
+}
+
+startShot(0);
+
+function nextShot(){ startShot((shotIndex+1) % shots.length); }
+function toggleAutoCut(){
+  autoCut = !autoCut;
+  const b = document.getElementById('btn-auto');
+  b.classList.toggle('off', !autoCut);
+  b.querySelector('.lbl').textContent = autoCut ? 'Auto-cut: on' : 'Auto-cut: off';
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space'){ nextShot(); e.preventDefault(); }
+  if (e.key.toLowerCase() === 'p'){ toggleAutoCut(); }
+});
+
+// Touch / click buttons (mobile has no physical keys). Bind to pointerdown so
+// they respond instantly without the 300ms tap delay, and stop the event from
+// bubbling to any camera/orbit handlers.
+function bindPress(id, fn){
+  const el = document.getElementById(id);
+  el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); fn(); });
+}
+bindPress('btn-next', nextShot);
+bindPress('btn-auto', toggleAutoCut);
+
+// ---- Graphics-API toggle ----
+// Swapping the backend means tearing down one GPU context and standing up
+// another; doing that live is fiddly and error-prone, so we persist the choice
+// in the URL and reload for a clean rebuild. The button always names the backend
+// you'd switch *to*. If WebGPU isn't available it's shown disabled with a reason.
+(function initApiToggle(){
+  const btn = document.getElementById('btn-api');
+  const lbl = btn.querySelector('.lbl');
+  if (!webgpuSupported){
+    // Only WebGL is possible on this system — make that explicit and inert.
+    btn.classList.add('disabled');
+    lbl.textContent = 'WebGPU N/A';
+    btn.title = 'WebGPU is not supported in this browser/device';
+    return;
+  }
+  const target = (backend === 'webgpu') ? 'webgl' : 'webgpu';
+  lbl.textContent = (target === 'webgpu') ? 'Use WebGPU' : 'Use WebGL';
+  btn.title = 'Currently running ' + backendLabel + ' — click to switch to ' +
+              (target === 'webgpu' ? 'WebGPU' : 'WebGL') + ' (reloads)';
+  bindPress('btn-api', () => {
+    if (bench.running) return;            // don't swap mid-benchmark
+    const p = new URLSearchParams(location.search);
+    p.set('api', target);
+    location.search = p.toString();       // triggers reload with new backend
+  });
+})();
+
+// =================== BENCHMARK ===================
+// Runs a fixed-duration timed pass, samples per-frame metrics, then downloads a
+// plain-text report (CSGO-console style: run summary + percentile breakdown).
+const BENCH_DURATION = 30;   // seconds
+const bench = {
+  running: false,
+  startTs: 0,
+  elapsed: 0,
+  frames: [],          // { t, dt(ms), fps, draws, tris }
+  startedAtISO: '',
+};
+const benchBtn   = document.getElementById('btn-bench');
+const benchBanner= document.getElementById('bench-banner');
+const benchCount = document.getElementById('bench-count');
+const benchFill  = document.getElementById('bench-fill');
+
+function resetSimulation(){
+  // Return the world to a clean, repeatable starting state so every benchmark
+  // measures the same workload from the same point.
+  u = 0;
+  track.getPointAt(0, prevPos);
+  wheels.forEach(w => w.rotation.set(0,0,0));
+  autoCut = true;
+  document.getElementById('btn-auto').classList.remove('off');
+  document.getElementById('btn-auto').querySelector('.lbl').textContent = 'Auto-cut: on';
+  startShot(0);
+  camPos.set(0,8,20); camTgt.copy(carPos);
+  // reset the on-screen fps meters too
+  for (let i=0;i<history.length;i++) history[i]=60;
+}
+
+function startBenchmark(){
+  resetSimulation();
+  bench.running = true;
+  bench.elapsed = 0;
+  bench.frames = [];
+  bench.startTs = performance.now();
+  bench.startedAtISO = new Date().toISOString();
+  // Reset the frame-time baseline so the first sampled dt isn't inflated by the
+  // gap since the previous frame (e.g. button-press latency).
+  prevTs = performance.now();
+  lastFrame = performance.now();
+  benchBtn.classList.add('running');
+  benchBtn.querySelector('.lbl').textContent = 'Stop';
+  benchBanner.classList.add('show');
+}
+
+function stopBenchmark(aborted){
+  bench.running = false;
+  benchBtn.classList.remove('running');
+  benchBtn.querySelector('.lbl').textContent = 'Benchmark';
+  benchBanner.classList.remove('show');
+  if (!aborted && bench.frames.length > 5) downloadReport();
+}
+
+function toggleBenchmark(){ bench.running ? stopBenchmark(true) : startBenchmark(); }
+bindPress('btn-bench', toggleBenchmark);
+
+// called once per rendered frame from the loop while running
+function benchSample(nowTs, dtMs){
+  bench.elapsed = (nowTs - bench.startTs) / 1000;
+  bench.frames.push({
+    t: +bench.elapsed.toFixed(3),
+    dt: +dtMs.toFixed(3),
+    fps: dtMs > 0 ? +(1000/dtMs).toFixed(2) : 0,
+    draws: drawCalls(),
+    tris: triangleCount(),
+  });
+  benchCount.textContent = bench.elapsed.toFixed(1) + 's';
+  benchFill.style.width = Math.min(100, (bench.elapsed/BENCH_DURATION)*100) + '%';
+  if (bench.elapsed >= BENCH_DURATION) stopBenchmark(false);
+}
+
+function pct(sortedAsc, p){
+  if (!sortedAsc.length) return 0;
+  const idx = Math.min(sortedAsc.length-1, Math.max(0, Math.round((p/100)*(sortedAsc.length-1))));
+  return sortedAsc[idx];
+}
+function mean(a){ return a.reduce((s,v)=>s+v,0)/a.length; }
+function stdev(a, m){ return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/a.length); }
+function pad(s, n){ s=String(s); return s + ' '.repeat(Math.max(0, n-s.length)); }
+
+function buildReport(){
+  const f = bench.frames;
+  const fpsArr = f.map(x=>x.fps);
+  const ftArr  = f.map(x=>x.dt);
+  const fpsSorted = [...fpsArr].sort((a,b)=>a-b);
+  const ftSorted  = [...ftArr].sort((a,b)=>a-b);
+  const avgFps = mean(fpsArr);
+  const avgFt  = mean(ftArr);
+
+  // "1% low" / "0.1% low" the way frametime tools report: mean of the worst frames
+  const worst = [...ftArr].sort((a,b)=>b-a); // slowest first
+  const lowN = (p)=>{ const n=Math.max(1, Math.floor(f.length*p)); const slice=worst.slice(0,n); return 1000/mean(slice); };
+  const low1  = lowN(0.01);
+  const low01 = lowN(0.001);
+
+  // The active backend + GPU were resolved once at startup; reuse those so the
+  // report is correct whether we're running on WebGL or WebGPU.
+  const gpu = gpuName;
+
+  const L = [];
+  L.push('================================================================');
+  L.push('  CHASSIS - CINEMATIC TRACK  |  BENCHMARK REPORT');
+  L.push('================================================================');
+  L.push('');
+  L.push('Run started      : ' + bench.startedAtISO);
+  L.push('Duration         : ' + bench.elapsed.toFixed(2) + ' s');
+  L.push('Frames rendered  : ' + f.length);
+  L.push('');
+  L.push('---- SYSTEM ----------------------------------------------------');
+  L.push('Graphics API     : ' + backendLabel);
+  L.push('GPU              : ' + gpu);
+  L.push('Render viewport  : ' + RENDER_W + ' x ' + RENDER_H + ' (fixed)');
+  L.push('Device pixel rat.: ' + window.devicePixelRatio);
+  L.push('Screen           : ' + screen.width + ' x ' + screen.height);
+  L.push('Window           : ' + window.innerWidth + ' x ' + window.innerHeight);
+  L.push('User agent       : ' + navigator.userAgent);
+  L.push('Logical cores    : ' + (navigator.hardwareConcurrency || 'n/a'));
+  if (navigator.deviceMemory) L.push('Device memory    : ~' + navigator.deviceMemory + ' GB');
+  L.push('Draw calls/frame : ' + (f.length? f[f.length-1].draws : 'n/a'));
+  L.push('Triangles/frame  : ' + (f.length? f[f.length-1].tris.toLocaleString() : 'n/a'));
+  L.push('');
+  L.push('---- FRAMERATE (fps) -------------------------------------------');
+  L.push('Average          : ' + avgFps.toFixed(2));
+  L.push('Minimum          : ' + Math.min(...fpsArr).toFixed(2));
+  L.push('Maximum          : ' + Math.max(...fpsArr).toFixed(2));
+  L.push('Std deviation    : ' + stdev(fpsArr, avgFps).toFixed(2));
+  L.push('1% low           : ' + low1.toFixed(2));
+  L.push('0.1% low         : ' + low01.toFixed(2));
+  L.push('');
+  L.push('---- FRAME TIME (ms) -------------------------------------------');
+  L.push('Average          : ' + avgFt.toFixed(3));
+  L.push('Minimum          : ' + Math.min(...ftArr).toFixed(3));
+  L.push('Maximum          : ' + Math.max(...ftArr).toFixed(3));
+  L.push('50th pct (median): ' + pct(ftSorted,50).toFixed(3));
+  L.push('95th pct         : ' + pct(ftSorted,95).toFixed(3));
+  L.push('99th pct         : ' + pct(ftSorted,99).toFixed(3));
+  L.push('');
+  L.push('---- FPS PERCENTILES -------------------------------------------');
+  [1,5,10,25,50,75,90,95,99].forEach(p=>{
+    L.push(pad('  p'+p, 8) + ': ' + pct(fpsSorted,p).toFixed(2) + ' fps');
+  });
+  L.push('');
+  L.push('================================================================');
+  L.push('  End of report - ' + f.length + ' frames over ' + bench.elapsed.toFixed(2) + 's');
+  L.push('================================================================');
+  return L.join('\n');
+}
+
+function downloadReport(){
+  const text = buildReport();
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = bench.startedAtISO.replace(/[:.]/g,'-').replace('T','_').slice(0,19);
+  a.href = url; a.download = 'chassis-benchmark_' + stamp + '.txt';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+
+function updateCamera(dt){
+  shotT += dt;
+  const shot = shots[shotIndex];
+  if (autoCut && shotT >= shot.dur) startShot((shotIndex+1) % shots.length);
+  const r = shots[shotIndex].fn(shots[shotIndex], shotT);
+  const posLerp = shots[shotIndex].fixed ? 1 : 1 - Math.pow(0.0015, dt);
+  const tgtLerp = 1 - Math.pow(0.0009, dt);
+  camPos.lerp(r.pos, posLerp);
+  camTgt.lerp(r.target, tgtLerp);
+  camera.position.copy(camPos);
+  camera.lookAt(camTgt);
+}
+
+// =================== STATS ===================
+const fpsEl=document.getElementById('fps'), ftEl=document.getElementById('ft'),
+  drawsEl=document.getElementById('draws'), trisEl=document.getElementById('tris'),
+  resEl=document.getElementById('res'), spdEl=document.getElementById('spd'),
+  minmaxEl=document.getElementById('minmax'), spark=document.getElementById('spark'),
+  sctx=spark.getContext('2d');
+const history=new Array(120).fill(60);
+let frames=0, lastFpsT=performance.now(), fps=60, lastFrame=performance.now();
+
+function drawSpark(){
+  const w=spark.width,h=spark.height; sctx.clearRect(0,0,w,h);
+  const max=Math.max(90,...history);
+  sctx.beginPath();
+  history.forEach((v,i)=>{ const x=(i/(history.length-1))*w, y=h-(v/max)*h; i? sctx.lineTo(x,y):sctx.moveTo(x,y); });
+  sctx.strokeStyle='#4dd0ff'; sctx.lineWidth=1.5; sctx.stroke();
+  sctx.lineTo(w,h); sctx.lineTo(0,h); sctx.closePath();
+  const g=sctx.createLinearGradient(0,0,0,h);
+  g.addColorStop(0,'rgba(77,208,255,0.28)'); g.addColorStop(1,'rgba(77,208,255,0)');
+  sctx.fillStyle=g; sctx.fill();
+  const gy=h-(60/max)*h;
+  sctx.strokeStyle='rgba(92,255,177,0.35)'; sctx.setLineDash([3,3]); sctx.lineWidth=1;
+  sctx.beginPath(); sctx.moveTo(0,gy); sctx.lineTo(w,gy); sctx.stroke(); sctx.setLineDash([]);
+}
+
+// The drawing buffer is locked to 1920x1080. Here we only compute the CSS size
+// that fits that 16:9 canvas into the current screen, centered and letterboxed,
+// so it looks right in both portrait and landscape.
+function fitCanvas(){
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const scale = Math.min(vw / RENDER_W, vh / RENDER_H);
+  const cssW = Math.round(RENDER_W * scale);
+  const cssH = Math.round(RENDER_H * scale);
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.style.left = Math.round((vw - cssW) / 2) + 'px';
+  canvas.style.top  = Math.round((vh - cssH) / 2) + 'px';
+}
+window.addEventListener('resize', fitCanvas);
+
+track.getPointAt(0, prevPos);
+let prevTs = performance.now();
+let elapsedTotal = 0;   // seconds since load, drives lighting & spinners
+// Motion is scaled by the frame-time delta, so speeds stay identical whatever
+// rate the browser paints at.
+function loop(ts){
+  requestAnimationFrame(loop);
+  const now = ts !== undefined ? ts : performance.now();
+  const dt = Math.min((now - prevTs) / 1000, 0.05);
+  prevTs = now;
+  elapsedTotal += dt;
+
+  placeCar(dt);
+  // animated shadow-casters + dynamic lighting
+  for (let i=0;i<spinners.length;i++) spinners[i].rotation.y += dt * (0.6 + i*0.15);
+  updateLighting(elapsedTotal);
+  updateDynamicLights();
+  updateCamera(dt);
+  renderer.render(scene,camera);
+
+  const ft=now-lastFrame; lastFrame=now; frames++;
+  if (bench.running) benchSample(now, ft);
+  if (now-lastFpsT>=500){
+    fps=Math.round(frames*1000/(now-lastFpsT)); frames=0; lastFpsT=now;
+    history.push(fps); history.shift();
+    fpsEl.textContent=fps; fpsEl.className='v big '+(fps>=50?'good':fps>=30?'':'warn');
+    minmaxEl.textContent=Math.min(...history)+'–'+Math.max(...history);
+    drawSpark();
+  }
+  ftEl.textContent=ft.toFixed(1)+' ms';
+  drawsEl.textContent=drawCalls();
+  trisEl.textContent=triangleCount().toLocaleString();
+  resEl.textContent=RENDER_W+'×'+RENDER_H;
+  spdEl.textContent=Math.round(carSpeedKmh)+' km/h';
+}
+fitCanvas();
+loop();
+</script>
+</body>
+</html>
