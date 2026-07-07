@@ -60,22 +60,6 @@
   .bar { position: fixed; left: 0; width: 100%; height: 6vh; background: #000; z-index: 9; pointer-events: none; }
   .bar.top { top: 0; } .bar.bottom { bottom: 0; }
 
-  /* backend label, pinned by JS to the top edge of the render viewport */
-  .render-label {
-    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
-    z-index: 11; pointer-events: none;
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; font-weight: 700;
-    color: #eaf3ff; background: rgba(10,14,20,0.7);
-    border: 1px solid var(--line); border-radius: 4px; padding: 7px 14px;
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    text-shadow: 0 1px 6px rgba(0,0,0,0.8);
-  }
-  .render-label .rl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hot); box-shadow: 0 0 8px var(--hot); }
-  .render-label.gpu .rl-dot { background: var(--good); box-shadow: 0 0 8px var(--good); }
-  .render-label .rl-api { color: var(--hot); }
-  .render-label.gpu .rl-api { color: var(--good); }
-
   .controls { position: fixed; bottom: 14px; left: 20px; right: 20px; z-index: 20; display: flex; flex-wrap: wrap; gap: 10px; }
   .ctl {
     -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -93,11 +77,33 @@
   .ctl.bench.running { color: var(--warn); border-color: rgba(255,107,107,0.6); }
   .ctl.api-toggle { color: var(--good); border-color: rgba(92,255,177,0.35); }
   .ctl.api-toggle.disabled { color: var(--hot-dim); border-color: rgba(120,200,255,0.1); cursor: not-allowed; opacity: 0.55; }
-  .ctl.src { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: var(--hot-dim); border-color: rgba(120,200,255,0.14); }
-  .ctl.src:hover { color: #eaf3ff; border-color: var(--hot); }
-  .ctl.src svg { display: block; opacity: 0.85; }
   .ctl.stress { color: var(--amber); border-color: rgba(255,177,77,0.4); }
   .ctl.stress.off { color: var(--hot-dim); border-color: rgba(120,200,255,0.1); }
+
+  /* GitHub source tab, tucked into the top-right corner — pulls out on hover */
+  #gh-tab {
+    position: fixed; top: 12px; right: 0; z-index: 25;
+    display: flex; align-items: center; justify-content: center;
+    width: 46px; height: 40px; padding-right: 4px;
+    color: #eaf3ff; background: var(--panel);
+    backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    border: 1px solid var(--line); border-right: none;
+    border-radius: 8px 0 0 8px;
+    transform: translateX(14px);
+    transition: transform .18s cubic-bezier(.34,1.56,.64,1), color .15s ease, border-color .15s ease;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  }
+  #gh-tab svg { display: block; opacity: 0.9; }
+  #gh-tab:hover, #gh-tab:focus-visible {
+    transform: translateX(0); color: #fff; border-color: var(--hot);
+    outline: none;
+  }
+  #gh-tab:active { transform: translateX(0) scale(0.94); }
+  /* on touch devices (no hover) rest partly out so it's always tappable */
+  @media (hover: none) {
+    #gh-tab { transform: translateX(6px); }
+    #gh-tab:active { transform: translateX(0) scale(0.94); }
+  }
 
   /* benchmark status banner, centered up top */
   .bench-banner {
@@ -168,14 +174,12 @@
     .ctl { font-size: 9px; padding: 10px 12px; letter-spacing: 0.1em; min-height: 40px; }
     .controls { gap: 8px; left: 12px; right: 12px; bottom: 12px; }
     .controls .ctl { flex: 1 1 auto; justify-content: center; text-align: center; white-space: nowrap; }
-    /* keep the "Live" badge above the (possibly two-row) controls so they don't overlap */
-    .badge { bottom: auto; top: 12px; right: 12px; }
+    #gh-tab { width: 42px; height: 38px; }
   }
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
-<div class="render-label" id="render-label">—</div>
 <div class="bar top"></div>
 <div class="bar bottom"></div>
 
@@ -208,11 +212,11 @@
   <button id="btn-api" class="ctl api-toggle"><span class="lbl">API</span></button>
   <button id="btn-stress" class="ctl stress off"><span class="lbl">Stress: off</span></button>
   <button id="btn-bench" class="ctl bench"><span class="lbl">Benchmark</span></button>
-  <a id="btn-src" class="ctl src" href="https://github.com/HVEPYC/Browser-WebGL-WebGPU-Car-Benchmark-Demo" target="_blank" rel="noopener noreferrer" title="View source on GitHub">
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-    <span class="lbl">Source</span>
-  </a>
 </div>
+
+<a id="gh-tab" href="https://github.com/HVEPYC/Browser-WebGL-WebGPU-Car-Benchmark-Demo" target="_blank" rel="noopener noreferrer" title="View source on GitHub" aria-label="View source on GitHub">
+  <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+</a>
 <div class="bench-banner" id="bench-banner">
   <div class="t">Benchmarking</div>
   <div class="n" id="bench-count">0.0s</div>
@@ -256,7 +260,14 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
-const RENDER_W = 1920, RENDER_H = 1080;   // fixed internal render viewport
+// Base viewport defines the 16:9 aspect and the CSS letterbox fit. The actual
+// GPU drawing-buffer resolution (bufW/bufH) is normally the same 1080p, but STRESS
+// mode raises it to 4K (exactly 2× in each axis, so aspect/letterbox are
+// unchanged — only the pixel count the GPU must fill quadruples).
+const RENDER_W = 1920, RENDER_H = 1080;   // base aspect / CSS-fit reference
+const RES_NORMAL = { w: 1920, h: 1080 };
+const RES_STRESS = { w: 3840, h: 2160 };  // 4K UHD
+let bufW = RES_NORMAL.w, bufH = RES_NORMAL.h;   // current drawing-buffer size
 const canvas = document.getElementById('scene');
 
 // ============ BACKEND SELECTION (WebGL / WebGPU) ============
@@ -295,7 +306,7 @@ async function buildRenderer(){
     const { default: WebGPURenderer } = await import('three/webgpu');
     renderer = new WebGPURenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(1);
-    renderer.setSize(RENDER_W, RENDER_H, false);
+    renderer.setSize(bufW, bufH, false);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -311,10 +322,11 @@ async function buildRenderer(){
     } catch(e){ gpuName = 'WebGPU adapter (details hidden by browser)'; }
   } else {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    // Always render at exactly 1920x1080 into the drawing buffer, regardless of the
-    // device screen or orientation. CSS then scales the canvas to fit (letterboxed).
+    // Render into a fixed-resolution buffer (1080p, or 4K in stress mode),
+    // regardless of the device screen or orientation. CSS then scales the canvas
+    // to fit (letterboxed).
     renderer.setPixelRatio(1);
-    renderer.setSize(RENDER_W, RENDER_H, false);  // false = don't touch CSS size
+    renderer.setSize(bufW, bufH, false);  // false = don't touch CSS size
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -334,15 +346,6 @@ await buildRenderer();
 // Reflect the resolved backend + GPU in the HUD.
 document.getElementById('api').textContent = backendLabel;
 document.getElementById('gpu').textContent = gpuName;
-
-// Prominent backend label above the render viewport.
-(function setRenderLabel(){
-  const el = document.getElementById('render-label');
-  const isGPU = (backend === 'webgpu');
-  const apiName = isGPU ? 'WebGPU' : (backendLabel.startsWith('WebGL 2') ? 'WebGL 2' : 'WebGL');
-  el.classList.toggle('gpu', isGPU);
-  el.innerHTML = '<span class="rl-dot"></span>Rendering via <span class="rl-api">' + apiName + '</span>';
-})();
 
 // Uniform per-frame metric accessors that work across both renderer.info shapes.
 // WebGPURenderer.info also nests render.{drawCalls,triangles}; older paths differ,
@@ -1150,8 +1153,14 @@ function computeStats(){
   const ftArr  = f.map(x=>x.dt);
   const fpsSorted = [...fpsArr].sort((a,b)=>a-b);
   const ftSorted  = [...ftArr].sort((a,b)=>a-b);
-  const avgFps = mean(fpsArr);
   const avgFt  = mean(ftArr);
+  // IMPORTANT: average FPS must be derived from mean frame TIME (total frames ÷
+  // total time), NOT the arithmetic mean of per-frame fps values. Averaging fps
+  // directly over-weights fast frames — e.g. frames alternating 200fps/7fps would
+  // "average" ~100fps while the machine truly renders ~13fps. Deriving from
+  // frametime gives the honest sustained rate and keeps avg-fps and avg-frametime
+  // consistent with each other.
+  const avgFps = avgFt > 0 ? 1000 / avgFt : 0;
   // "1% low" / "0.1% low" the way frametime tools report: mean of the worst frames
   const worst = [...ftArr].sort((a,b)=>b-a); // slowest first
   const lowN = (p)=>{ const n=Math.max(1, Math.floor(f.length*p)); const slice=worst.slice(0,n); return 1000/mean(slice); };
@@ -1191,7 +1200,7 @@ function buildReport(){
   L.push('Graphics API     : ' + backendLabel);
   L.push('Test profile     : ' + (bench.stressed ? 'STRESS (4K shadows + extended dynamic lights)' : 'Standard'));
   L.push('GPU              : ' + gpu);
-  L.push('Render viewport  : ' + RENDER_W + ' x ' + RENDER_H + ' (fixed)');
+  L.push('Render viewport  : ' + bufW + ' x ' + bufH + (bench.stressed ? ' (4K stress)' : ' (1080p)'));
   L.push('Device pixel rat.: ' + window.devicePixelRatio);
   L.push('Screen           : ' + screen.width + ' x ' + screen.height);
   L.push('Window           : ' + window.innerWidth + ' x ' + window.innerHeight);
@@ -1422,9 +1431,9 @@ function drawCard(){
   // ---- system spec block ----
   cy += 26;
   const rows = [
-    ['GRAPHICS API', backendLabel.replace(' (via three.js)','') + (bench.stressed ? '  ·  STRESS' : '')],
+    ['GRAPHICS API', backendLabel.replace(' (via three.js)',''), bench.stressed ? 'STRESS' : null],
     ['GPU',          shortGPU(s.gpu)],
-    ['RESOLUTION',   RENDER_W + '×' + RENDER_H],
+    ['RESOLUTION',   bufW + '×' + bufH],
     ['CPU THREADS',  String(navigator.hardwareConcurrency || 'n/a') +
                      (navigator.deviceMemory ? '   ·   ~' + navigator.deviceMemory + ' GB RAM' : '')],
     ['MIN / MAX',    s.minFps.toFixed(0) + ' – ' + s.maxFps.toFixed(0) + ' fps   ·   σ ' + s.stdevFps.toFixed(1)],
@@ -1438,7 +1447,26 @@ function drawCard(){
     x.fillStyle = '#7a90a8';
     x.save(); x.letterSpacing = '1px'; x.fillText(r[0], left, cy); x.restore();
     x.fillStyle = '#eaf3ff'; x.textAlign = 'right';
+    x.font = `10px ${FM}`;
     x.fillText(r[1], right, cy);
+    // optional glowing STRESS tag, drawn just left of the value
+    if (r[2] === 'STRESS'){
+      const valW = x.measureText(r[1]).width;
+      const tagX = right - valW - 10;   // right edge of the tag
+      x.save();
+      x.font = `700 10px ${FM}`;
+      x.letterSpacing = '1px';
+      const tagText = '● STRESS';
+      // glowing amber/red so it reads as a heavy run
+      x.shadowColor = 'rgba(255,120,60,0.9)';
+      x.shadowBlur = 8;
+      x.fillStyle = '#ff8a3c';
+      x.fillText(tagText, tagX, cy);
+      // second pass with no shadow for a crisp core
+      x.shadowBlur = 0;
+      x.fillText(tagText, tagX, cy);
+      x.restore();
+    }
     x.textAlign = 'left';
     x.strokeStyle = 'rgba(120,200,255,0.06)'; x.lineWidth = 1;
     x.beginPath(); x.moveTo(left, cy+6); x.lineTo(right, cy+6); x.stroke();
@@ -1586,13 +1614,6 @@ function fitCanvas(){
   canvas.style.height = cssH + 'px';
   canvas.style.left = offX + 'px';
   canvas.style.top  = offY + 'px';
-  // Pin the backend label to the top edge of the actual rendered viewport, so it
-  // sits right above the scene rather than floating in the letterbox.
-  const rl = document.getElementById('render-label');
-  if (rl){
-    rl.style.top = Math.max(8, offY + 10) + 'px';
-    rl.style.left = (offX + cssW/2) + 'px';
-  }
 }
 window.addEventListener('resize', fitCanvas);
 
@@ -1605,16 +1626,55 @@ let elapsedTotal = 0;   // seconds since load, drives lighting & spinners
 // throughput). Instead of faking it, stress mode raises the *workload* while
 // still rendering exactly once per frame — so the browser stays smooth and the
 // resulting frame time is an honest measure of GPU headroom: a device that holds
-// 60fps under stress has more headroom than one that drops. It bumps shadow-map
-// resolution and enables extra dynamic lights; the toggle applies immediately.
+// STRESS MODE. Renders once per frame (smooth, no queue flooding), but cranks the
+// graphics load hard so frame time becomes an honest headroom measure:
+//   • 4K (3840×2160) drawing buffer — 4× the fragments of 1080p
+//   • 8K key-light shadow map (vs 2K) — 16× the shadow texels
+//   • every dynamic lamp light casts real shadows, with extended range
+//   • higher tone-mapping / anisotropy pressure
+// A device that holds 60fps through all this has serious headroom.
 let stress = false;
-const SHADOW_NORMAL = 2048, SHADOW_STRESS = 4096;
+const SHADOW_NORMAL = 2048, SHADOW_STRESS = 8192;
+
+function setBufferResolution(w, h){
+  // Guard against GPUs whose max renderbuffer/viewport is below 4K: clamp while
+  // preserving the 16:9 aspect, so a weak device downshifts instead of going blank.
+  try {
+    const gl = renderer.getContext && renderer.getContext();
+    if (gl && gl.getParameter){
+      const maxDim = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
+      if (w > maxDim){ const s = maxDim / w; w = Math.floor(w*s); h = Math.floor(h*s); }
+    }
+  } catch(e){}
+  bufW = w; bufH = h;
+  renderer.setSize(bufW, bufH, false);   // buffer only; CSS fit stays 16:9
+  camera.aspect = bufW / bufH;
+  camera.updateProjectionMatrix();
+}
+
 function applyStress(){
+  // resolution: 4K under stress, 1080p otherwise
+  const res = stress ? RES_STRESS : RES_NORMAL;
+  setBufferResolution(res.w, res.h);
+
+  // key-light shadow map resolution
   key.shadow.mapSize.set(stress ? SHADOW_STRESS : SHADOW_NORMAL,
                          stress ? SHADOW_STRESS : SHADOW_NORMAL);
-  if (key.shadow.map){ key.shadow.map.dispose(); key.shadow.map = null; }  // force rebuild at new size
-  // extra reach + brightness on the dynamic lamp lights ups per-fragment cost
-  dynLights.forEach(pl => { pl.distance = stress ? 30 : 18; });
+  if (key.shadow.map){ key.shadow.map.dispose(); key.shadow.map = null; }
+
+  // dynamic lamp lights: cast shadows + extend range under stress (each shadow-
+  // casting point light is a full extra cube render pass — very heavy)
+  dynLights.forEach(pl => {
+    pl.distance = stress ? 34 : 18;
+    pl.castShadow = stress;
+    if (stress){
+      pl.shadow.mapSize.set(1024, 1024);
+      pl.shadow.camera.near = 0.5;
+      pl.shadow.camera.far = 34;
+      pl.shadow.bias = -0.002;
+    }
+    if (pl.shadow.map){ pl.shadow.map.dispose(); pl.shadow.map = null; }
+  });
 }
 
 // During a benchmark the sim is driven by the benchmark's own elapsed wall-clock
@@ -1637,11 +1697,28 @@ function loop(ts){
   } else {
     simDt = rawDt;
   }
-  elapsedTotal += simDt;
 
-  // ---- simulation ----
-  placeCar(simDt);
-  for (let i=0;i<spinners.length;i++) spinners[i].rotation.y += simDt * (0.6 + i*0.15);
+  // Advance the simulation in small fixed sub-steps. A single big timestep (e.g.
+  // ~0.2s at single-digit fps in stress mode) makes the stiff suspension springs
+  // in placeCar integrate unstably and fling the car off the map. Sub-stepping
+  // caps each integration at a stable size while still reaching the exact same
+  // sim time — so the car's PATH stays deterministic AND stable at any frame rate.
+  const MAX_SUBSTEP = 1/60;                       // ~16.7ms: safely stable
+  let remaining = simDt;
+  // hard ceiling on sub-steps so a huge stall (tab refocus) can't freeze the loop
+  let guard = 240;
+  while (remaining > 1e-6 && guard-- > 0){
+    const step = Math.min(remaining, MAX_SUBSTEP);
+    elapsedTotal += step;
+    placeCar(step);
+    for (let i=0;i<spinners.length;i++) spinners[i].rotation.y += step * (0.6 + i*0.15);
+    remaining -= step;
+  }
+  // If the guard tripped (extreme stall), snap sim time forward so position stays
+  // aligned with wall-clock without running thousands of steps.
+  if (remaining > 1e-6){ simTime += remaining; elapsedTotal += remaining; }
+
+  // lighting + camera only need the final state, so update once per frame
   updateLighting(elapsedTotal);
   updateDynamicLights();
   updateCamera(simDt);
@@ -1666,7 +1743,7 @@ function loop(ts){
   ftEl.textContent=lastFrameMs.toFixed(1)+' ms';
   drawsEl.textContent=drawCalls();
   trisEl.textContent=triangleCount().toLocaleString();
-  resEl.textContent=RENDER_W+'×'+RENDER_H;
+  resEl.textContent=bufW+'×'+bufH;
   spdEl.textContent=Math.round(carSpeedKmh)+' km/h';
 }
 fitCanvas();
