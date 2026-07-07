@@ -60,9 +60,9 @@
   .bar { position: fixed; left: 0; width: 100%; height: 6vh; background: #000; z-index: 9; pointer-events: none; }
   .bar.top { top: 0; } .bar.bottom { bottom: 0; }
 
-  /* backend label, centered above the render viewport */
+  /* backend label, pinned by JS to the top edge of the render viewport */
   .render-label {
-    position: fixed; top: calc(6vh + 12px); left: 50%; transform: translateX(-50%);
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
     z-index: 11; pointer-events: none;
     display: inline-flex; align-items: center; gap: 8px;
     font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; font-weight: 700;
@@ -96,8 +96,8 @@
   .ctl.src { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: var(--hot-dim); border-color: rgba(120,200,255,0.14); }
   .ctl.src:hover { color: #eaf3ff; border-color: var(--hot); }
   .ctl.src svg { display: block; opacity: 0.85; }
-  .ctl.uncap { color: var(--amber); border-color: rgba(255,177,77,0.4); }
-  .ctl.uncap.off { color: var(--hot-dim); border-color: rgba(120,200,255,0.1); }
+  .ctl.stress { color: var(--amber); border-color: rgba(255,177,77,0.4); }
+  .ctl.stress.off { color: var(--hot-dim); border-color: rgba(120,200,255,0.1); }
 
   /* benchmark status banner, centered up top */
   .bench-banner {
@@ -206,7 +206,7 @@
   <button id="btn-next" class="ctl"><span class="lbl">Next shot</span></button>
   <button id="btn-auto" class="ctl"><span class="lbl">Auto-cut: on</span></button>
   <button id="btn-api" class="ctl api-toggle"><span class="lbl">API</span></button>
-  <button id="btn-uncap" class="ctl uncap off"><span class="lbl">Uncap FPS: off</span></button>
+  <button id="btn-stress" class="ctl stress off"><span class="lbl">Stress: off</span></button>
   <button id="btn-bench" class="ctl bench"><span class="lbl">Benchmark</span></button>
   <a id="btn-src" class="ctl src" href="https://github.com/HVEPYC/Browser-WebGL-WebGPU-Car-Benchmark-Demo" target="_blank" rel="noopener noreferrer" title="View source on GitHub">
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -711,8 +711,16 @@ makeWheel(1.45,1.02); makeWheel(1.45,-1.02); makeWheel(-1.45,1.02); makeWheel(-1
 carBody.rotation.y = -Math.PI/2;
 
 // =================== DRIVE ===================
+// The car's along-track position `u` is derived from an absolute simulation
+// clock (simTime), NOT accumulated per-frame. This makes the render target fully
+// reproducible: from simTime=0 the car always traces the exact same A→B path and
+// reaches the same point at the same time, no matter the frame rate, stalls, or
+// render mode. SPEED is laps per second. The suspension springs below still
+// integrate with real dt (they're fast-settling visual polish and don't affect
+// where the car *is*), so a laggy frame can't drift the benchmark's path.
 let u = 0;
-const SPEED = 0.045;
+let simTime = 0;               // seconds of simulated drive time (drives u)
+const SPEED = 0.045;           // laps per second
 const carPos = new THREE.Vector3();
 const aheadPos = new THREE.Vector3();
 let carSpeedKmh = 0;
@@ -768,7 +776,10 @@ for (let i=0;i<NUM_GANTRIES;i++){
 }
 
 function placeCar(dt){
-  u = (u + SPEED * dt) % 1;
+  // Advance the simulation clock, then derive u from it. Position depends only on
+  // simTime, so the path is identical across runs regardless of frame pacing.
+  simTime += dt;
+  u = (simTime * SPEED) % 1;
   track.getPointAt(u, carPos);
   track.getPointAt((u + 0.008) % 1, aheadPos);
 
@@ -844,7 +855,7 @@ function placeCar(dt){
   // Spin about the wheel's own axle (local Z, which the base y-rotation aimed
   // sideways). rotateOnAxis composes correctly on top of that base orientation.
   wheels.forEach(w => w.rotateOnAxis(WHEEL_AXLE, -dist * 1.4));
-  carSpeedKmh = (dist / dt) * 3.6 * 2.2;
+  carSpeedKmh = (dist / Math.max(dt, 1e-4)) * 3.6 * 2.2;
   prevPos.copy(carPos);
 }
 
@@ -960,7 +971,7 @@ function toggleAutoCut(){
 window.addEventListener('keydown', e => {
   if (e.code === 'Space'){ nextShot(); e.preventDefault(); }
   if (e.key.toLowerCase() === 'p'){ toggleAutoCut(); }
-  if (e.key.toLowerCase() === 'u'){ toggleUncap(); }
+  if (e.key.toLowerCase() === 's'){ toggleStress(); }
 });
 
 // Touch / click buttons (mobile has no physical keys). Bind to pointerdown so
@@ -973,17 +984,16 @@ function bindPress(id, fn){
 bindPress('btn-next', nextShot);
 bindPress('btn-auto', toggleAutoCut);
 
-// ---- FPS uncap toggle ----
-function toggleUncap(){
-  if (bench.running) return;   // don't change render load mid-run
-  uncap = !uncap;
-  const b = document.getElementById('btn-uncap');
-  b.classList.toggle('off', !uncap);
-  b.querySelector('.lbl').textContent = uncap ? 'Uncap FPS: on' : 'Uncap FPS: off';
-  // reset frame pacing so the first sample after a switch isn't a huge spike
-  lastFrame = performance.now();
+// ---- Stress-load toggle ----
+function toggleStress(){
+  if (bench.running) return;   // don't change load mid-run
+  stress = !stress;
+  applyStress();
+  const b = document.getElementById('btn-stress');
+  b.classList.toggle('off', !stress);
+  b.querySelector('.lbl').textContent = stress ? 'Stress: on' : 'Stress: off';
 }
-bindPress('btn-uncap', toggleUncap);
+bindPress('btn-stress', toggleStress);
 
 // ---- Graphics-API toggle ----
 // Swapping the backend means tearing down one GPU context and standing up
@@ -1026,7 +1036,7 @@ const bench = {
   memPeakMB: 0,        // peak used JS heap seen during the run (MB), 0 if unsupported
   memLimitMB: 0,       // engine heap ceiling (MB), 0 if unsupported
   memSupported: false, // whether performance.memory was available
-  uncapped: false,     // whether FPS uncap (multi-render) mode was active
+  stressed: false,     // whether stress-load mode was active during the run
 };
 const benchBtn   = document.getElementById('btn-bench');
 const benchBanner= document.getElementById('bench-banner');
@@ -1035,10 +1045,13 @@ const benchFill  = document.getElementById('bench-fill');
 
 function resetSimulation(){
   // Return the world to a clean, repeatable starting state so every benchmark
-  // measures the same workload from the same point.
-  u = 0;
+  // measures the same workload from the same point and traces the same path.
+  u = 0; simTime = 0; elapsedTotal = 0;
   track.getPointAt(0, prevPos);
   wheels.forEach(w => w.rotation.set(0,0,0));
+  // reset suspension springs so body pose starts identical each run
+  susp.bodyY = susp.bodyVY = susp.pitch = susp.pitchV = susp.roll = susp.rollV = 0;
+  prevHeading = 0;
   autoCut = true;
   document.getElementById('btn-auto').classList.remove('off');
   document.getElementById('btn-auto').querySelector('.lbl').textContent = 'Auto-cut: on';
@@ -1072,7 +1085,7 @@ function startBenchmark(){
   bench.elapsed = 0;
   bench.frames = [];
   bench.memPeakMB = 0; bench.memLimitMB = 0; bench.memSupported = false;
-  bench.uncapped = uncap;
+  bench.stressed = stress;
   bench.startTs = performance.now();
   bench.startedAtISO = new Date().toISOString();
   // Reset the frame-time baseline so the first sampled dt isn't inflated by the
@@ -1176,7 +1189,7 @@ function buildReport(){
   L.push('');
   L.push('---- SYSTEM ----------------------------------------------------');
   L.push('Graphics API     : ' + backendLabel);
-  L.push('Render mode      : ' + (bench.uncapped ? 'UNCAPPED (' + UNCAP_RENDERS + ' renders/frame — throughput test)' : 'Normal (vsync-locked to display)'));
+  L.push('Test profile     : ' + (bench.stressed ? 'STRESS (4K shadows + extended dynamic lights)' : 'Standard'));
   L.push('GPU              : ' + gpu);
   L.push('Render viewport  : ' + RENDER_W + ' x ' + RENDER_H + ' (fixed)');
   L.push('Device pixel rat.: ' + window.devicePixelRatio);
@@ -1409,7 +1422,7 @@ function drawCard(){
   // ---- system spec block ----
   cy += 26;
   const rows = [
-    ['GRAPHICS API', backendLabel.replace(' (via three.js)','') + (bench.uncapped ? '  ·  UNCAPPED' : '')],
+    ['GRAPHICS API', backendLabel.replace(' (via three.js)','') + (bench.stressed ? '  ·  STRESS' : '')],
     ['GPU',          shortGPU(s.gpu)],
     ['RESOLUTION',   RENDER_W + '×' + RENDER_H],
     ['CPU THREADS',  String(navigator.hardwareConcurrency || 'n/a') +
@@ -1567,10 +1580,19 @@ function fitCanvas(){
   const scale = Math.min(vw / RENDER_W, vh / RENDER_H);
   const cssW = Math.round(RENDER_W * scale);
   const cssH = Math.round(RENDER_H * scale);
+  const offX = Math.round((vw - cssW) / 2);
+  const offY = Math.round((vh - cssH) / 2);
   canvas.style.width = cssW + 'px';
   canvas.style.height = cssH + 'px';
-  canvas.style.left = Math.round((vw - cssW) / 2) + 'px';
-  canvas.style.top  = Math.round((vh - cssH) / 2) + 'px';
+  canvas.style.left = offX + 'px';
+  canvas.style.top  = offY + 'px';
+  // Pin the backend label to the top edge of the actual rendered viewport, so it
+  // sits right above the scene rather than floating in the letterbox.
+  const rl = document.getElementById('render-label');
+  if (rl){
+    rl.style.top = Math.max(8, offY + 10) + 'px';
+    rl.style.left = (offX + cssW/2) + 'px';
+  }
 }
 window.addEventListener('resize', fitCanvas);
 
@@ -1578,43 +1600,57 @@ track.getPointAt(0, prevPos);
 let prevTs = performance.now();
 let elapsedTotal = 0;   // seconds since load, drives lighting & spinners
 
-// FPS uncap / throughput mode. Browsers give web pages no way to disable vsync:
-// requestAnimationFrame is hard-locked to the display's refresh/compositor, so on
-// a 60Hz panel a normal loop can't exceed ~60fps regardless of GPU headroom (a
-// high-refresh monitor raises that automatically). To measure raw render
-// throughput past the refresh ceiling, "uncap" renders the scene many times per
-// animation frame and times each render individually. Simulation still advances
-// by real wall-clock dt once per animation frame, so the car moves normally; the
-// extra renders just re-draw the same frame to stress the GPU/driver.
-let uncap = false;
-const UNCAP_RENDERS = 12;   // renders per animation frame when uncapped
+// STRESS MODE. Browsers can't uncap fps (rAF is vsync-locked and gl.finish is a
+// no-op in Chrome, so you can neither exceed refresh nor honestly time raw
+// throughput). Instead of faking it, stress mode raises the *workload* while
+// still rendering exactly once per frame — so the browser stays smooth and the
+// resulting frame time is an honest measure of GPU headroom: a device that holds
+// 60fps under stress has more headroom than one that drops. It bumps shadow-map
+// resolution and enables extra dynamic lights; the toggle applies immediately.
+let stress = false;
+const SHADOW_NORMAL = 2048, SHADOW_STRESS = 4096;
+function applyStress(){
+  key.shadow.mapSize.set(stress ? SHADOW_STRESS : SHADOW_NORMAL,
+                         stress ? SHADOW_STRESS : SHADOW_NORMAL);
+  if (key.shadow.map){ key.shadow.map.dispose(); key.shadow.map = null; }  // force rebuild at new size
+  // extra reach + brightness on the dynamic lamp lights ups per-fragment cost
+  dynLights.forEach(pl => { pl.distance = stress ? 30 : 18; });
+}
 
-// Motion is scaled by the frame-time delta, so speeds stay identical whatever
-// rate the browser paints at.
+// During a benchmark the sim is driven by the benchmark's own elapsed wall-clock
+// time (not a per-frame step), so the car reaches the same point at the same
+// SECOND on every device regardless of how many frames it managed to render. A
+// 30fps phone and a 120fps desktop trace the identical A→B path over the 30s run;
+// only the smoothness (frame count) differs. Outside a benchmark, the sim
+// free-runs on real dt.
 function loop(ts){
   requestAnimationFrame(loop);
   const now = ts !== undefined ? ts : performance.now();
-  const dt = Math.min((now - prevTs) / 1000, 0.05);
+  const rawDt = Math.min((now - prevTs) / 1000, 0.05);
   prevTs = now;
-  elapsedTotal += dt;
 
-  // ---- simulation: advance once per animation frame with real dt ----
-  placeCar(dt);
-  for (let i=0;i<spinners.length;i++) spinners[i].rotation.y += dt * (0.6 + i*0.15);
+  let simDt;
+  if (bench.running){
+    // target sim time = seconds elapsed since the run began; step to it exactly
+    const target = (now - bench.startTs) / 1000;
+    simDt = Math.max(0, target - simTime);
+  } else {
+    simDt = rawDt;
+  }
+  elapsedTotal += simDt;
+
+  // ---- simulation ----
+  placeCar(simDt);
+  for (let i=0;i<spinners.length;i++) spinners[i].rotation.y += simDt * (0.6 + i*0.15);
   updateLighting(elapsedTotal);
   updateDynamicLights();
-  updateCamera(dt);
+  updateCamera(simDt);
 
-  // ---- render: once normally, or many times back-to-back when uncapped ----
-  const renders = uncap ? UNCAP_RENDERS : 1;
-  for (let r=0; r<renders; r++){
-    renderer.render(scene, camera);
-    // Time each individual render so fps/frametime reflect true throughput.
-    const tNow = performance.now();
-    const ft = tNow - lastFrame; lastFrame = tNow; frames++;
-    if (bench.running) benchSample(tNow, ft);
-    lastFrameMs = ft;
-  }
+  // ---- render once (smooth; no queue flooding) ----
+  renderer.render(scene, camera);
+  const ft = now - lastFrame; lastFrame = now; frames++;
+  lastFrameMs = ft;
+  if (bench.running) benchSample(now, ft);
 
   if (now-lastFpsT>=500){
     fps=Math.round(frames*1000/(now-lastFpsT)); frames=0; lastFpsT=now;
