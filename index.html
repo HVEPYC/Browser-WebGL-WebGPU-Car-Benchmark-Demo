@@ -77,6 +77,9 @@
   .ctl.bench.running { color: var(--warn); border-color: rgba(255,107,107,0.6); }
   .ctl.api-toggle { color: var(--good); border-color: rgba(92,255,177,0.35); }
   .ctl.api-toggle.disabled { color: var(--hot-dim); border-color: rgba(120,200,255,0.1); cursor: not-allowed; opacity: 0.55; }
+  .ctl.src { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: var(--hot-dim); border-color: rgba(120,200,255,0.14); }
+  .ctl.src:hover { color: #eaf3ff; border-color: var(--hot); }
+  .ctl.src svg { display: block; opacity: 0.85; }
 
   /* benchmark status banner, centered up top */
   .bench-banner {
@@ -94,6 +97,52 @@
   .badge { position: fixed; bottom: 14px; right: 16px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--hot-dim); z-index: 10; pointer-events: none; }
   .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--good); margin-right:6px; vertical-align: middle; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* results popup shown when a benchmark finishes */
+  .results-overlay {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(3,6,10,0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    padding: 20px;
+  }
+  .results-overlay.show { display: flex; }
+  .results-modal {
+    position: relative; width: 100%; max-width: 360px; max-height: 92vh; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    padding: 20px 20px 18px; text-align: center;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+  }
+  .results-close {
+    position: absolute; top: 8px; right: 10px; z-index: 2;
+    appearance: none; border: none; background: none; cursor: pointer;
+    color: var(--hot-dim); font-size: 22px; line-height: 1; padding: 4px 8px;
+    font-family: inherit; transition: color .15s ease;
+  }
+  .results-close:hover { color: #eaf3ff; }
+  .results-head { margin-bottom: 14px; }
+  .results-eyebrow { display: block; font-size: 8px; letter-spacing: 0.34em; text-transform: uppercase; color: var(--hot-dim); margin-bottom: 4px; }
+  .results-title { display: block; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--hot); font-weight: 700; }
+  .results-card-wrap { margin: 0 auto 16px; max-width: 260px; }
+  .results-card-img { width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid rgba(120,200,255,0.12); }
+  .results-prompt { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--hot-dim); margin-bottom: 10px; }
+  .results-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .rbtn {
+    appearance: none; cursor: pointer; user-select: none; font-family: inherit;
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #eaf3ff; background: rgba(77,208,255,0.08);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 11px 12px; min-height: 42px; flex: 1 1 0; min-width: 88px;
+    transition: transform .06s ease, border-color .15s ease, background .15s ease;
+  }
+  .rbtn:active { transform: scale(0.95); }
+  .rbtn.primary:hover { border-color: var(--hot); background: rgba(77,208,255,0.16); }
+  .results-src {
+    display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--hot-dim);
+    transition: color .15s ease;
+  }
+  .results-src:hover { color: var(--hot); }
 
   @media (max-width: 520px) {
     .hud { width: 210px; top: 12px; left: 12px; padding: 12px; }
@@ -135,6 +184,10 @@
   <button id="btn-auto" class="ctl"><span class="lbl">Auto-cut: on</span></button>
   <button id="btn-api" class="ctl api-toggle"><span class="lbl">API</span></button>
   <button id="btn-bench" class="ctl bench"><span class="lbl">Benchmark</span></button>
+  <a id="btn-src" class="ctl src" href="https://github.com/HVEPYC/Browser-WebGL-WebGPU-Car-Benchmark-Demo" target="_blank" rel="noopener noreferrer" title="View source on GitHub">
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    <span class="lbl">Source</span>
+  </a>
 </div>
 <div class="bench-banner" id="bench-banner">
   <div class="t">Benchmarking</div>
@@ -142,6 +195,29 @@
   <div class="bar-track"><div class="bar-fill" id="bench-fill"></div></div>
 </div>
 <div class="badge"><span class="dot"></span>Live</div>
+
+<div class="results-overlay" id="results-overlay">
+  <div class="results-modal" role="dialog" aria-modal="true" aria-labelledby="results-title">
+    <button class="results-close" id="results-close" title="Close" aria-label="Close">×</button>
+    <div class="results-head">
+      <span class="results-eyebrow">Benchmark complete</span>
+      <span class="results-title" id="results-title">Your results are ready</span>
+    </div>
+    <div class="results-card-wrap">
+      <img id="results-img" class="results-card-img" alt="Benchmark result card" />
+    </div>
+    <div class="results-prompt">Download your results</div>
+    <div class="results-actions">
+      <button class="rbtn primary" id="dl-image">Image (PNG)</button>
+      <button class="rbtn primary" id="dl-text">Report (TXT)</button>
+      <button class="rbtn primary" id="dl-both">Both</button>
+    </div>
+    <a class="results-src" href="https://github.com/HVEPYC/Browser-WebGL-WebGPU-Car-Benchmark-Demo" target="_blank" rel="noopener noreferrer">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      View this demo's source on GitHub
+    </a>
+  </div>
+</div>
 
 <script type="importmap">
 { "imports": {
@@ -246,6 +322,21 @@ function triangleCount(){
   const r = renderer.info?.render || {};
   return r.triangles ?? 0;
 }
+
+// JS heap memory. performance.memory is a non-standard Chromium API (Chrome/Edge)
+// and is the only in-page signal for how much RAM the benchmark is actually using
+// vs. how much the engine will let it have. Absent (Firefox/Safari) -> null, and
+// callers show "n/a". Values are in bytes; we surface MB.
+function memoryInfo(){
+  const m = (performance && performance.memory) ? performance.memory : null;
+  if (!m) return null;
+  return {
+    usedMB:  m.usedJSHeapSize  / 1048576,   // heap currently in use by the app
+    totalMB: m.totalJSHeapSize / 1048576,   // heap currently allocated to the app
+    limitMB: m.jsHeapSizeLimit / 1048576,   // ceiling the engine will grant
+  };
+}
+function fmtMB(v){ return v >= 1024 ? (v/1024).toFixed(2) + ' GB' : v.toFixed(0) + ' MB'; }
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0e14);
@@ -394,6 +485,15 @@ function asphaltTexture(){
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.anisotropy = 8;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // WebGPU backend (three r160) doesn't reliably generate mipmaps for canvas
+  // textures, so at distance it samples an empty higher mip and the road appears
+  // to vanish unless the camera is right on top of it. Disabling mipmaps and
+  // sampling the base level with a linear filter renders identically on WebGL and
+  // WebGPU; anisotropy still keeps it sharp at grazing angles.
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
   return tex;
 }
 
@@ -403,7 +503,10 @@ const shoulderTex = (() => {
   const x = c.getContext('2d');
   x.fillStyle = '#191d16'; x.fillRect(0,0,64,64);
   for(let i=0;i<600;i++){ const g=18+Math.random()*22; x.fillStyle=`rgb(${g},${g+6},${g})`; x.fillRect(Math.random()*64,Math.random()*64,1.5,1.5); }
-  const t = new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(1,60); return t;
+  const t = new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(1,60);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+  return t;
 })();
 
 // A wide earth apron that follows the terrain and extends well past the road,
@@ -414,7 +517,10 @@ const earthTex = (() => {
   const x = c.getContext('2d');
   x.fillStyle = '#0e1510'; x.fillRect(0,0,64,64);
   for(let i=0;i<500;i++){ const g=10+Math.random()*16; x.fillStyle=`rgb(${g},${g+5},${g})`; x.fillRect(Math.random()*64,Math.random()*64,1.6,1.6); }
-  const t = new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(3,80); return t;
+  const t = new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(3,80);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+  return t;
 })();
 buildRibbon((ROAD_W/2)+SHOULDER_W+22, -0.05, new THREE.MeshStandardMaterial({ map: earthTex, roughness: 1.0, metalness: 0.0 }), 1);
 
@@ -871,6 +977,9 @@ const bench = {
   frames: [],          // { t, dt(ms), fps, draws, tris }
   startedAtISO: '',
   wakeLock: null,      // Screen Wake Lock sentinel, held during a run
+  memPeakMB: 0,        // peak used JS heap seen during the run (MB), 0 if unsupported
+  memLimitMB: 0,       // engine heap ceiling (MB), 0 if unsupported
+  memSupported: false, // whether performance.memory was available
 };
 const benchBtn   = document.getElementById('btn-bench');
 const benchBanner= document.getElementById('bench-banner');
@@ -915,6 +1024,7 @@ function startBenchmark(){
   bench.running = true;
   bench.elapsed = 0;
   bench.frames = [];
+  bench.memPeakMB = 0; bench.memLimitMB = 0; bench.memSupported = false;
   bench.startTs = performance.now();
   bench.startedAtISO = new Date().toISOString();
   // Reset the frame-time baseline so the first sampled dt isn't inflated by the
@@ -934,8 +1044,7 @@ function stopBenchmark(aborted){
   benchBtn.querySelector('.lbl').textContent = 'Benchmark';
   benchBanner.classList.remove('show');
   if (!aborted && bench.frames.length > 5){
-    downloadReport();
-    downloadCard();
+    showResults();
   }
 }
 
@@ -945,12 +1054,19 @@ bindPress('btn-bench', toggleBenchmark);
 // called once per rendered frame from the loop while running
 function benchSample(nowTs, dtMs){
   bench.elapsed = (nowTs - bench.startTs) / 1000;
+  const mem = memoryInfo();
+  if (mem){
+    bench.memSupported = true;
+    bench.memLimitMB = mem.limitMB;
+    if (mem.usedMB > bench.memPeakMB) bench.memPeakMB = mem.usedMB;
+  }
   bench.frames.push({
     t: +bench.elapsed.toFixed(3),
     dt: +dtMs.toFixed(3),
     fps: dtMs > 0 ? +(1000/dtMs).toFixed(2) : 0,
     draws: drawCalls(),
     tris: triangleCount(),
+    mem: mem ? +mem.usedMB.toFixed(1) : null,
   });
   benchCount.textContent = bench.elapsed.toFixed(1) + 's';
   benchFill.style.width = Math.min(100, (bench.elapsed/BENCH_DURATION)*100) + '%';
@@ -978,12 +1094,22 @@ function computeStats(){
   // "1% low" / "0.1% low" the way frametime tools report: mean of the worst frames
   const worst = [...ftArr].sort((a,b)=>b-a); // slowest first
   const lowN = (p)=>{ const n=Math.max(1, Math.floor(f.length*p)); const slice=worst.slice(0,n); return 1000/mean(slice); };
+  const low1 = lowN(0.01), low01 = lowN(0.001);
+  // Composite benchmark score. Weighs sustained framerate (average) together with
+  // smoothness (the 1% low), so a run that holds a steady 60 scores higher than
+  // one that averages 60 by swinging between 120 and stutters. Scaled ×10 for a
+  // punchier headline number. This same value drives the rank tiers.
+  const score = Math.round((avgFps * 0.7 + low1 * 0.3) * 10);
   return {
     f, fpsArr, ftArr, fpsSorted, ftSorted, avgFps, avgFt,
     minFps: Math.min(...fpsArr), maxFps: Math.max(...fpsArr),
     stdevFps: stdev(fpsArr, avgFps),
-    low1: lowN(0.01), low01: lowN(0.001),
+    low1, low01,
+    score,
     gpu: gpuName,
+    memSupported: bench.memSupported,
+    memPeakMB: bench.memPeakMB,
+    memLimitMB: bench.memLimitMB,
   };
 }
 
@@ -1012,6 +1138,16 @@ function buildReport(){
   if (navigator.deviceMemory) L.push('Device memory    : ~' + navigator.deviceMemory + ' GB');
   L.push('Draw calls/frame : ' + (f.length? f[f.length-1].draws : 'n/a'));
   L.push('Triangles/frame  : ' + (f.length? f[f.length-1].tris.toLocaleString() : 'n/a'));
+  L.push('');
+  L.push('---- MEMORY (JS heap) ------------------------------------------');
+  if (bench.memSupported){
+    L.push('Peak in use      : ' + fmtMB(bench.memPeakMB));
+    L.push('Heap limit       : ' + fmtMB(bench.memLimitMB));
+    L.push('Utilisation      : ' + (bench.memLimitMB? (bench.memPeakMB/bench.memLimitMB*100).toFixed(1) : '0') + ' %');
+  } else {
+    L.push('Peak in use      : n/a (performance.memory unavailable in this browser)');
+  }
+  if (navigator.deviceMemory) L.push('Device RAM (est) : ~' + navigator.deviceMemory + ' GB');
   L.push('');
   L.push('---- FRAMERATE (fps) -------------------------------------------');
   L.push('Average          : ' + avgFps.toFixed(2));
@@ -1056,12 +1192,13 @@ function downloadReport(){
 // the run's headline numbers, system info, and a frametime graph, then downloads
 // it as a PNG alongside the text report.
 
-// Give each run a flavor tier + accent based on average fps — purely cosmetic.
-function rankFor(avgFps){
-  if (avgFps >= 110) return { tier: 'S',  name: 'MYTHIC',    accent: '#ff8adf' };
-  if (avgFps >= 85)  return { tier: 'A',  name: 'LEGENDARY', accent: '#ffb14d' };
-  if (avgFps >= 60)  return { tier: 'B',  name: 'RARE',      accent: '#5cffb1' };
-  if (avgFps >= 40)  return { tier: 'C',  name: 'UNCOMMON',  accent: '#4dd0ff' };
+// Give each run a flavor tier + accent based on the composite score — cosmetic.
+// Thresholds are on the ×10 score, so ~1100 ≈ a rock-solid 110fps run, etc.
+function rankFor(score){
+  if (score >= 1100) return { tier: 'S',  name: 'MYTHIC',    accent: '#ff8adf' };
+  if (score >= 850)  return { tier: 'A',  name: 'LEGENDARY', accent: '#ffb14d' };
+  if (score >= 600)  return { tier: 'B',  name: 'RARE',      accent: '#5cffb1' };
+  if (score >= 400)  return { tier: 'C',  name: 'UNCOMMON',  accent: '#4dd0ff' };
   return               { tier: 'D',  name: 'COMMON',    accent: '#7a90a8' };
 }
 
@@ -1091,7 +1228,7 @@ function drawCard(){
   x.scale(S, S);
 
   const s = computeStats();
-  const rank = rankFor(s.avgFps);
+  const rank = rankFor(s.score);
   const pad = 22;
 
   // ---- background: deep panel with a subtle vertical glow ----
@@ -1136,7 +1273,7 @@ function drawCard(){
   x.strokeStyle = 'rgba(120,200,255,0.15)'; x.lineWidth = 1;
   x.beginPath(); x.moveTo(left, cy); x.lineTo(right, cy); x.stroke();
 
-  // ---- hero: big average FPS ----
+  // ---- hero: big average FPS (left) + composite SCORE (right) ----
   cy += 46;
   x.fillStyle = '#eaf3ff'; x.font = `700 72px ${FM}`;
   x.fillText(s.avgFps.toFixed(1), left, cy);
@@ -1148,19 +1285,35 @@ function drawCard(){
   x.fillText('AVERAGE FRAMERATE', left + wNum + 12, cy - 22);
   x.restore();
 
-  // ---- three sub-stats (1% low / 0.1% low / avg frametime) ----
+  // big score, right-aligned in the accent colour — the headline collectible stat
+  x.textAlign = 'right';
+  x.fillStyle = rank.accent; x.font = `700 44px ${FM}`;
+  x.fillText(String(s.score), right, cy);
+  x.fillStyle = '#7a90a8'; x.font = `9px ${FM}`;
+  x.save(); x.letterSpacing = '2px';
+  x.fillText('SCORE', right, cy - 22);
+  x.restore();
+  x.textAlign = 'left';
+
+  // ---- four sub-stats (1% low / 0.1% low / avg frametime / peak RAM) ----
   cy += 20;
-  const colW = innerW / 3;
+  // Peak heap shown compactly: whole MB, or GB with one decimal when large.
+  const ramVal = s.memSupported
+    ? (s.memPeakMB >= 1024 ? (s.memPeakMB/1024).toFixed(1) : s.memPeakMB.toFixed(0))
+    : 'n/a';
+  const ramUnit = s.memSupported ? (s.memPeakMB >= 1024 ? 'GB' : 'MB') : '';
+  const colW = innerW / 4;
   const subs = [
     ['1% LOW',    s.low1.toFixed(1),  'fps'],
     ['0.1% LOW',  s.low01.toFixed(1), 'fps'],
     ['FRAME',     s.avgFt.toFixed(2), 'ms'],
+    ['PEAK RAM',  ramVal,             ramUnit],
   ];
   subs.forEach((c,i)=>{
     const cx0 = left + colW*i;
     x.fillStyle = '#7a90a8'; x.font = `8px ${FM}`;
-    x.save(); x.letterSpacing = '1.5px'; x.fillText(c[0], cx0, cy); x.restore();
-    x.fillStyle = '#eaf3ff'; x.font = `700 22px ${FM}`;
+    x.save(); x.letterSpacing = '1px'; x.fillText(c[0], cx0, cy); x.restore();
+    x.fillStyle = '#eaf3ff'; x.font = `700 20px ${FM}`;
     x.fillText(c[1], cx0, cy + 24);
     const wv = x.measureText(c[1]).width;
     x.fillStyle = '#7a90a8'; x.font = `9px ${FM}`;
@@ -1223,6 +1376,9 @@ function drawCard(){
     ['CPU THREADS',  String(navigator.hardwareConcurrency || 'n/a') +
                      (navigator.deviceMemory ? '   ·   ~' + navigator.deviceMemory + ' GB RAM' : '')],
     ['MIN / MAX',    s.minFps.toFixed(0) + ' – ' + s.maxFps.toFixed(0) + ' fps   ·   σ ' + s.stdevFps.toFixed(1)],
+    ['JS HEAP',      s.memSupported
+                       ? fmtMB(s.memPeakMB) + ' / ' + fmtMB(s.memLimitMB) + ' peak'
+                       : 'n/a (browser)'],
     ['SAMPLE',       s.f.length + ' frames · ' + bench.elapsed.toFixed(0) + 's'],
   ];
   x.font = `10px ${FM}`;
@@ -1255,20 +1411,49 @@ function drawCard(){
   return cv;
 }
 
-function downloadCard(){
-  let cv;
-  try { cv = drawCard(); }
-  catch(e){ console.warn('card render failed', e); return; }
-  cv.toBlob(blob => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const stamp = bench.startedAtISO.replace(/[:.]/g,'-').replace('T','_').slice(0,19);
-    a.href = url; a.download = 'chassis-card_' + stamp + '.png';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 4000);
-  }, 'image/png');
+// The card canvas for the most recent finished run, built once and reused for
+// both the on-screen preview and the PNG download.
+let lastCardCanvas = null;
+
+function triggerDownload(blobOrUrl, filename){
+  const url = (typeof blobOrUrl === 'string') ? blobOrUrl : URL.createObjectURL(blobOrUrl);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  if (typeof blobOrUrl !== 'string') setTimeout(()=>URL.revokeObjectURL(url), 4000);
 }
+function stamp(){ return bench.startedAtISO.replace(/[:.]/g,'-').replace('T','_').slice(0,19); }
+
+function downloadCard(){
+  const cv = lastCardCanvas;
+  if (!cv) return;
+  cv.toBlob(blob => { if (blob) triggerDownload(blob, 'chassis-card_' + stamp() + '.png'); }, 'image/png');
+}
+
+// ---- results popup ----
+const resultsOverlay = document.getElementById('results-overlay');
+const resultsImg     = document.getElementById('results-img');
+
+function showResults(){
+  // Render the card once and keep the canvas around for the PNG export.
+  try { lastCardCanvas = drawCard(); }
+  catch(e){ console.warn('card render failed', e); lastCardCanvas = null; }
+  if (lastCardCanvas){
+    try { resultsImg.src = lastCardCanvas.toDataURL('image/png'); } catch(e){}
+    resultsImg.style.display = '';
+  } else {
+    resultsImg.style.display = 'none';   // no preview, but text report still offered
+  }
+  resultsOverlay.classList.add('show');
+}
+function hideResults(){ resultsOverlay.classList.remove('show'); }
+
+document.getElementById('dl-image').addEventListener('click', () => { downloadCard(); });
+document.getElementById('dl-text').addEventListener('click', () => { downloadReport(); });
+document.getElementById('dl-both').addEventListener('click', () => { downloadReport(); downloadCard(); });
+document.getElementById('results-close').addEventListener('click', hideResults);
+resultsOverlay.addEventListener('click', e => { if (e.target === resultsOverlay) hideResults(); });
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && resultsOverlay.classList.contains('show')) hideResults(); });
 
 
 function updateCamera(dt){
