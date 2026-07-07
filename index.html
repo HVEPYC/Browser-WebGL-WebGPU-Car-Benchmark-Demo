@@ -60,7 +60,23 @@
   .bar { position: fixed; left: 0; width: 100%; height: 6vh; background: #000; z-index: 9; pointer-events: none; }
   .bar.top { top: 0; } .bar.bottom { bottom: 0; }
 
-  .controls { position: fixed; bottom: 14px; left: 20px; z-index: 20; display: flex; gap: 10px; }
+  /* backend label, centered above the render viewport */
+  .render-label {
+    position: fixed; top: calc(6vh + 12px); left: 50%; transform: translateX(-50%);
+    z-index: 11; pointer-events: none;
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; font-weight: 700;
+    color: #eaf3ff; background: rgba(10,14,20,0.7);
+    border: 1px solid var(--line); border-radius: 4px; padding: 7px 14px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+  }
+  .render-label .rl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hot); box-shadow: 0 0 8px var(--hot); }
+  .render-label.gpu .rl-dot { background: var(--good); box-shadow: 0 0 8px var(--good); }
+  .render-label .rl-api { color: var(--hot); }
+  .render-label.gpu .rl-api { color: var(--good); }
+
+  .controls { position: fixed; bottom: 14px; left: 20px; right: 20px; z-index: 20; display: flex; flex-wrap: wrap; gap: 10px; }
   .ctl {
     -webkit-tap-highlight-color: transparent; touch-action: manipulation;
     appearance: none; cursor: pointer; user-select: none;
@@ -80,6 +96,8 @@
   .ctl.src { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: var(--hot-dim); border-color: rgba(120,200,255,0.14); }
   .ctl.src:hover { color: #eaf3ff; border-color: var(--hot); }
   .ctl.src svg { display: block; opacity: 0.85; }
+  .ctl.uncap { color: var(--amber); border-color: rgba(255,177,77,0.4); }
+  .ctl.uncap.off { color: var(--hot-dim); border-color: rgba(120,200,255,0.1); }
 
   /* benchmark status banner, centered up top */
   .bench-banner {
@@ -146,14 +164,18 @@
 
   @media (max-width: 520px) {
     .hud { width: 210px; top: 12px; left: 12px; padding: 12px; }
-    .shot { font-size: 10px; bottom: 74px; }
-    .ctl { font-size: 9px; padding: 11px 13px; letter-spacing: 0.12em; }
-    .controls { gap: 8px; }
+    .shot { font-size: 10px; bottom: 108px; }
+    .ctl { font-size: 9px; padding: 10px 12px; letter-spacing: 0.1em; min-height: 40px; }
+    .controls { gap: 8px; left: 12px; right: 12px; bottom: 12px; }
+    .controls .ctl { flex: 1 1 auto; justify-content: center; text-align: center; white-space: nowrap; }
+    /* keep the "Live" badge above the (possibly two-row) controls so they don't overlap */
+    .badge { bottom: auto; top: 12px; right: 12px; }
   }
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
+<div class="render-label" id="render-label">—</div>
 <div class="bar top"></div>
 <div class="bar bottom"></div>
 
@@ -184,6 +206,7 @@
   <button id="btn-next" class="ctl"><span class="lbl">Next shot</span></button>
   <button id="btn-auto" class="ctl"><span class="lbl">Auto-cut: on</span></button>
   <button id="btn-api" class="ctl api-toggle"><span class="lbl">API</span></button>
+  <button id="btn-uncap" class="ctl uncap off"><span class="lbl">Uncap FPS: off</span></button>
   <button id="btn-bench" class="ctl bench"><span class="lbl">Benchmark</span></button>
   <a id="btn-src" class="ctl src" href="https://github.com/HVEPYC/Browser-WebGL-WebGPU-Car-Benchmark-Demo" target="_blank" rel="noopener noreferrer" title="View source on GitHub">
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -311,6 +334,15 @@ await buildRenderer();
 // Reflect the resolved backend + GPU in the HUD.
 document.getElementById('api').textContent = backendLabel;
 document.getElementById('gpu').textContent = gpuName;
+
+// Prominent backend label above the render viewport.
+(function setRenderLabel(){
+  const el = document.getElementById('render-label');
+  const isGPU = (backend === 'webgpu');
+  const apiName = isGPU ? 'WebGPU' : (backendLabel.startsWith('WebGL 2') ? 'WebGL 2' : 'WebGL');
+  el.classList.toggle('gpu', isGPU);
+  el.innerHTML = '<span class="rl-dot"></span>Rendering via <span class="rl-api">' + apiName + '</span>';
+})();
 
 // Uniform per-frame metric accessors that work across both renderer.info shapes.
 // WebGPURenderer.info also nests render.{drawCalls,triangles}; older paths differ,
@@ -928,6 +960,7 @@ function toggleAutoCut(){
 window.addEventListener('keydown', e => {
   if (e.code === 'Space'){ nextShot(); e.preventDefault(); }
   if (e.key.toLowerCase() === 'p'){ toggleAutoCut(); }
+  if (e.key.toLowerCase() === 'u'){ toggleUncap(); }
 });
 
 // Touch / click buttons (mobile has no physical keys). Bind to pointerdown so
@@ -939,6 +972,18 @@ function bindPress(id, fn){
 }
 bindPress('btn-next', nextShot);
 bindPress('btn-auto', toggleAutoCut);
+
+// ---- FPS uncap toggle ----
+function toggleUncap(){
+  if (bench.running) return;   // don't change render load mid-run
+  uncap = !uncap;
+  const b = document.getElementById('btn-uncap');
+  b.classList.toggle('off', !uncap);
+  b.querySelector('.lbl').textContent = uncap ? 'Uncap FPS: on' : 'Uncap FPS: off';
+  // reset frame pacing so the first sample after a switch isn't a huge spike
+  lastFrame = performance.now();
+}
+bindPress('btn-uncap', toggleUncap);
 
 // ---- Graphics-API toggle ----
 // Swapping the backend means tearing down one GPU context and standing up
@@ -981,6 +1026,7 @@ const bench = {
   memPeakMB: 0,        // peak used JS heap seen during the run (MB), 0 if unsupported
   memLimitMB: 0,       // engine heap ceiling (MB), 0 if unsupported
   memSupported: false, // whether performance.memory was available
+  uncapped: false,     // whether FPS uncap (multi-render) mode was active
 };
 const benchBtn   = document.getElementById('btn-bench');
 const benchBanner= document.getElementById('bench-banner');
@@ -1026,6 +1072,7 @@ function startBenchmark(){
   bench.elapsed = 0;
   bench.frames = [];
   bench.memPeakMB = 0; bench.memLimitMB = 0; bench.memSupported = false;
+  bench.uncapped = uncap;
   bench.startTs = performance.now();
   bench.startedAtISO = new Date().toISOString();
   // Reset the frame-time baseline so the first sampled dt isn't inflated by the
@@ -1129,6 +1176,7 @@ function buildReport(){
   L.push('');
   L.push('---- SYSTEM ----------------------------------------------------');
   L.push('Graphics API     : ' + backendLabel);
+  L.push('Render mode      : ' + (bench.uncapped ? 'UNCAPPED (' + UNCAP_RENDERS + ' renders/frame — throughput test)' : 'Normal (vsync-locked to display)'));
   L.push('GPU              : ' + gpu);
   L.push('Render viewport  : ' + RENDER_W + ' x ' + RENDER_H + ' (fixed)');
   L.push('Device pixel rat.: ' + window.devicePixelRatio);
@@ -1361,7 +1409,7 @@ function drawCard(){
   // ---- system spec block ----
   cy += 26;
   const rows = [
-    ['GRAPHICS API', backendLabel.replace(' (via three.js)','')],
+    ['GRAPHICS API', backendLabel.replace(' (via three.js)','') + (bench.uncapped ? '  ·  UNCAPPED' : '')],
     ['GPU',          shortGPU(s.gpu)],
     ['RESOLUTION',   RENDER_W + '×' + RENDER_H],
     ['CPU THREADS',  String(navigator.hardwareConcurrency || 'n/a') +
@@ -1494,7 +1542,7 @@ const fpsEl=document.getElementById('fps'), ftEl=document.getElementById('ft'),
   minmaxEl=document.getElementById('minmax'), spark=document.getElementById('spark'),
   sctx=spark.getContext('2d');
 const history=new Array(120).fill(60);
-let frames=0, lastFpsT=performance.now(), fps=60, lastFrame=performance.now();
+let frames=0, lastFpsT=performance.now(), fps=60, lastFrame=performance.now(), lastFrameMs=16.7;
 
 function drawSpark(){
   const w=spark.width,h=spark.height; sctx.clearRect(0,0,w,h);
@@ -1529,6 +1577,18 @@ window.addEventListener('resize', fitCanvas);
 track.getPointAt(0, prevPos);
 let prevTs = performance.now();
 let elapsedTotal = 0;   // seconds since load, drives lighting & spinners
+
+// FPS uncap / throughput mode. Browsers give web pages no way to disable vsync:
+// requestAnimationFrame is hard-locked to the display's refresh/compositor, so on
+// a 60Hz panel a normal loop can't exceed ~60fps regardless of GPU headroom (a
+// high-refresh monitor raises that automatically). To measure raw render
+// throughput past the refresh ceiling, "uncap" renders the scene many times per
+// animation frame and times each render individually. Simulation still advances
+// by real wall-clock dt once per animation frame, so the car moves normally; the
+// extra renders just re-draw the same frame to stress the GPU/driver.
+let uncap = false;
+const UNCAP_RENDERS = 12;   // renders per animation frame when uncapped
+
 // Motion is scaled by the frame-time delta, so speeds stay identical whatever
 // rate the browser paints at.
 function loop(ts){
@@ -1538,16 +1598,24 @@ function loop(ts){
   prevTs = now;
   elapsedTotal += dt;
 
+  // ---- simulation: advance once per animation frame with real dt ----
   placeCar(dt);
-  // animated shadow-casters + dynamic lighting
   for (let i=0;i<spinners.length;i++) spinners[i].rotation.y += dt * (0.6 + i*0.15);
   updateLighting(elapsedTotal);
   updateDynamicLights();
   updateCamera(dt);
-  renderer.render(scene,camera);
 
-  const ft=now-lastFrame; lastFrame=now; frames++;
-  if (bench.running) benchSample(now, ft);
+  // ---- render: once normally, or many times back-to-back when uncapped ----
+  const renders = uncap ? UNCAP_RENDERS : 1;
+  for (let r=0; r<renders; r++){
+    renderer.render(scene, camera);
+    // Time each individual render so fps/frametime reflect true throughput.
+    const tNow = performance.now();
+    const ft = tNow - lastFrame; lastFrame = tNow; frames++;
+    if (bench.running) benchSample(tNow, ft);
+    lastFrameMs = ft;
+  }
+
   if (now-lastFpsT>=500){
     fps=Math.round(frames*1000/(now-lastFpsT)); frames=0; lastFpsT=now;
     history.push(fps); history.shift();
@@ -1559,7 +1627,7 @@ function loop(ts){
     ramEl.textContent = mem ? (fmtMB(mem.usedMB) + ' / ' + fmtMB(mem.limitMB)) : 'n/a';
     ramEl.style.color = mem ? '#eaf3ff' : '#7a90a8';
   }
-  ftEl.textContent=ft.toFixed(1)+' ms';
+  ftEl.textContent=lastFrameMs.toFixed(1)+' ms';
   drawsEl.textContent=drawCalls();
   trisEl.textContent=triangleCount().toLocaleString();
   resEl.textContent=RENDER_W+'×'+RENDER_H;
